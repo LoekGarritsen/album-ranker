@@ -253,6 +253,29 @@ async function handleWebSocketMessage(data) {
     case 'user_left':
       listeners.value = listeners.value.filter(l => l.user_id !== data.user_id)
       break
+
+    case 'rating':
+      // Update track ranking in real-time
+      if (album.value?.tracks) {
+        const track = album.value.tracks.find(t => t.id === data.track_id)
+        if (track) {
+          // Find existing ranking for this user or add new one
+          const existingIdx = track.rankings?.findIndex(r => r.user_id === data.user_id)
+          const newRanking = {
+            user_id: data.user_id,
+            user_name: data.user_name,
+            score: data.score,
+            comment: data.comment
+          }
+          if (existingIdx >= 0) {
+            track.rankings[existingIdx] = newRanking
+          } else {
+            if (!track.rankings) track.rankings = []
+            track.rankings.push(newRanking)
+          }
+        }
+      }
+      break
   }
 }
 
@@ -403,7 +426,7 @@ function handleTrackDetailRate(track) {
 }
 
 async function submitRating(data) {
-  const res = await fetch('/api/rankings/track', {
+  const res = await fetch(`/api/rankings/track?session_code=${sessionCode.value}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -415,7 +438,6 @@ async function submitRating(data) {
   })
 
   if (res.ok) {
-    await loadAlbum()
     closeRating()
   }
 }

@@ -443,11 +443,12 @@ def submit_album_ranking(ranking: AlbumRankingCreate):
         return {"ok": True}
 
 @app.post("/api/rankings/track")
-def submit_track_ranking(ranking: TrackRankingCreate):
+async def submit_track_ranking(ranking: TrackRankingCreate, session_code: Optional[str] = Query(None)):
     with get_connection() as conn:
         if not conn.execute("SELECT 1 FROM tracks WHERE id = ?", (ranking.track_id,)).fetchone():
             raise HTTPException(404, "Track not found")
-        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (ranking.user_id,)).fetchone():
+        user = conn.execute("SELECT id, name FROM users WHERE id = ?", (ranking.user_id,)).fetchone()
+        if not user:
             raise HTTPException(404, "User not found")
 
         conn.execute("""
@@ -457,7 +458,18 @@ def submit_track_ranking(ranking: TrackRankingCreate):
             DO UPDATE SET score = excluded.score, comment = excluded.comment, ranked_at = CURRENT_TIMESTAMP
         """, (ranking.track_id, ranking.user_id, ranking.score, ranking.comment))
 
-        return {"ok": True}
+    # Broadcast rating to session if provided
+    if session_code and session_code in active_sessions:
+        await broadcast_to_session(session_code, {
+            "type": "rating",
+            "track_id": ranking.track_id,
+            "user_id": ranking.user_id,
+            "user_name": user["name"],
+            "score": ranking.score,
+            "comment": ranking.comment
+        })
+
+    return {"ok": True}
 
 @app.get("/api/tracks/{track_id}")
 async def get_track_details(track_id: int):
