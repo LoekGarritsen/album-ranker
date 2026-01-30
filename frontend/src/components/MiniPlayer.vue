@@ -87,20 +87,20 @@ async function handleLeave() {
         <!-- Controls -->
         <div class="flex items-center gap-1">
           <button
-            @click="skipPrevious(currentUser)"
+            @click="skipPrevious(currentUser.value)"
             class="p-2 hover:bg-white/10 rounded-full transition-colors"
           >
             <SkipBack class="w-4 h-4" />
           </button>
           <button
-            @click="togglePlayback(currentUser)"
+            @click="togglePlayback(currentUser.value)"
             class="p-2 bg-accent-primary text-black rounded-full hover:bg-accent-primary/90 transition-colors"
           >
             <Pause v-if="isPlaying" class="w-5 h-5" />
             <Play v-else class="w-5 h-5 ml-0.5" />
           </button>
           <button
-            @click="skipNext(currentUser)"
+            @click="skipNext(currentUser.value)"
             class="p-2 hover:bg-white/10 rounded-full transition-colors"
           >
             <SkipForward class="w-4 h-4" />
