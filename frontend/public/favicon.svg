@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1DB954"/>
+      <stop offset="100%" style="stop-color:#14833B"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="48" fill="url(#bg)"/>
+  <!-- Vinyl record outer -->
+  <circle cx="50" cy="50" r="36" fill="#0A0E1A"/>
+  <!-- Vinyl grooves -->
+  <circle cx="50" cy="50" r="30" fill="none" stroke="#1a1f2e" stroke-width="2"/>
+  <circle cx="50" cy="50" r="24" fill="none" stroke="#1a1f2e" stroke-width="2"/>
+  <circle cx="50" cy="50" r="18" fill="none" stroke="#1a1f2e" stroke-width="2"/>
+  <!-- Center label -->
+  <circle cx="50" cy="50" r="12" fill="#1DB954"/>
+  <!-- Center hole -->
+  <circle cx="50" cy="50" r="3" fill="#0A0E1A"/>
+  <!-- Shine effect -->
+  <ellipse cx="38" cy="38" rx="8" ry="4" fill="rgba(255,255,255,0.1)" transform="rotate(-45 38 38)"/>
+</svg>
