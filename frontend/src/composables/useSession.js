@@ -261,9 +261,13 @@ export function useSession() {
     if (!session.value?.code) return
 
     try {
+      const headers = {}
+      if (currentUser?.id) {
+        headers['X-User-Id'] = currentUser.id.toString()
+      }
       await fetch(`/api/sessions/${session.value.code}/track?track_id=${trackId}`, {
         method: 'POST',
-        headers: { 'X-User-Id': currentUser?.id?.toString() || '' }
+        headers
       })
       session.value.current_track_id = trackId
       const track = album.value?.tracks?.find(t => t.id === trackId)
@@ -288,9 +292,13 @@ export function useSession() {
     const action = isPlaying.value ? 'pause' : 'play'
 
     try {
+      const headers = {}
+      if (currentUser?.id) {
+        headers['X-User-Id'] = currentUser.id.toString()
+      }
       await fetch(`/api/sessions/${session.value.code}/playback?action=${action}`, {
         method: 'POST',
-        headers: { 'X-User-Id': currentUser?.id?.toString() || '' }
+        headers
       })
     } catch (e) {
       console.error('Failed to toggle playback:', e)
@@ -304,9 +312,13 @@ export function useSession() {
     playbackPosition.value = position
 
     try {
+      const headers = {}
+      if (currentUser?.id) {
+        headers['X-User-Id'] = currentUser.id.toString()
+      }
       await fetch(`/api/sessions/${session.value.code}/playback?action=seek&position=${position}`, {
         method: 'POST',
-        headers: { 'X-User-Id': currentUser?.id?.toString() || '' }
+        headers
       })
     } catch (e) {
       console.error('Failed to seek:', e)
