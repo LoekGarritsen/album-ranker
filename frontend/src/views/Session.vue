@@ -57,6 +57,18 @@ const ratingModal = ref({ show: false, type: null, item: null, album: null })
 // Track detail modal state
 const trackDetailModal = ref({ show: false, trackId: null })
 
+// Toast notifications
+const toasts = ref([])
+let toastId = 0
+
+function showToast(message, type = 'info') {
+  const id = ++toastId
+  toasts.value.push({ id, message, type })
+  setTimeout(() => {
+    toasts.value = toasts.value.filter(t => t.id !== id)
+  }, 3000)
+}
+
 const sessionCode = computed(() => route.params.code)
 
 const currentTrack = computed(() => {
@@ -201,6 +213,12 @@ async function handleWebSocketMessage(data) {
       playbackPosition.value = data.position || 0
       isPlaying.value = data.is_playing || false
 
+      // Show who changed the track
+      if (data.changed_by && data.changed_by !== currentUser.value?.id) {
+        const trackName = album.value?.tracks?.find(t => t.id === data.track_id)?.name
+        showToast(`${data.changed_by_name || 'Someone'} selected "${trackName || 'a track'}"`)
+      }
+
       // Pause Spotify when track changes (user needs to press play)
       if (spotifyReady.value) {
         await spotifyPause()
@@ -247,12 +265,21 @@ async function handleWebSocketMessage(data) {
       // Add to listeners if not already there
       if (!listeners.value.find(l => l.user_id === data.user_id)) {
         listeners.value.push({ user_id: data.user_id, user_name: data.user_name })
+        // Show toast for other users joining
+        if (data.user_id !== currentUser.value?.id) {
+          showToast(`${data.user_name} joined the session`, 'success')
+        }
       }
       break
 
-    case 'user_left':
+    case 'user_left': {
+      const leftUser = listeners.value.find(l => l.user_id === data.user_id)
       listeners.value = listeners.value.filter(l => l.user_id !== data.user_id)
+      if (leftUser && data.user_id !== currentUser.value?.id) {
+        showToast(`${leftUser.user_name || data.user_name} left the session`)
+      }
       break
+    }
 
     case 'rating':
       // Update track ranking in real-time
@@ -272,6 +299,10 @@ async function handleWebSocketMessage(data) {
           } else {
             if (!track.rankings) track.rankings = []
             track.rankings.push(newRanking)
+          }
+          // Show toast for ratings from others
+          if (data.user_id !== currentUser.value?.id) {
+            showToast(`${data.user_name} rated "${track.name}" ${data.score.toFixed(1)}`, 'success')
           }
         }
       }
@@ -617,10 +648,12 @@ onUnmounted(() => {
           <div
             v-for="listener in listeners"
             :key="listener.user_id"
-            class="flex items-center gap-2 px-3 py-1.5 bg-white/10 rounded-full text-sm"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
+            :class="listener.user_id === currentUser?.id ? 'bg-accent-primary/20 border border-accent-primary/50' : 'bg-white/10'"
           >
             <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
             <span>{{ listener.user_name }}</span>
+            <span v-if="listener.user_id === currentUser?.id" class="text-xs text-accent-primary">(you)</span>
           </div>
           <div v-if="listeners.length === 0" class="text-slate-500 text-sm">
             No one is listening yet
@@ -832,5 +865,19 @@ onUnmounted(() => {
       @close="closeRating"
       @submit="submitRating"
     />
+
+    <!-- Toast notifications -->
+    <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+      <transition-group name="toast">
+        <div
+          v-for="toast in toasts"
+          :key="toast.id"
+          class="px-4 py-3 rounded-lg shadow-lg text-sm max-w-xs animate-slide-in"
+          :class="toast.type === 'success' ? 'bg-green-500/90 text-white' : 'bg-white/10 backdrop-blur-lg text-white border border-white/20'"
+        >
+          {{ toast.message }}
+        </div>
+      </transition-group>
+    </div>
   </div>
 </template>

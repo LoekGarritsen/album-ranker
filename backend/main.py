@@ -954,6 +954,7 @@ def join_session(code: str, x_user_id: Optional[int] = Header(None)):
 
 @app.post("/api/sessions/{code}/track")
 async def update_session_track(code: str, track_id: int = Query(...), x_user_id: Optional[int] = Header(None)):
+    user_name = None
     with get_connection() as conn:
         conn.execute("""
             UPDATE listening_sessions SET current_track_id = ?
@@ -963,6 +964,11 @@ async def update_session_track(code: str, track_id: int = Query(...), x_user_id:
         # Get track duration
         track = conn.execute("SELECT duration_ms FROM tracks WHERE id = ?", (track_id,)).fetchone()
         duration = track["duration_ms"] if track else 0
+
+        # Get user name
+        if x_user_id:
+            user = conn.execute("SELECT name FROM users WHERE id = ?", (x_user_id,)).fetchone()
+            user_name = user["name"] if user else None
 
     # Notify all websocket clients and reset playback
     if code in active_sessions:
@@ -976,7 +982,9 @@ async def update_session_track(code: str, track_id: int = Query(...), x_user_id:
             "track_id": track_id,
             "duration": duration,
             "position": 0,
-            "is_playing": False
+            "is_playing": False,
+            "changed_by": x_user_id,
+            "changed_by_name": user_name
         })
 
     return {"ok": True}
@@ -1058,13 +1066,20 @@ async def session_websocket(websocket: WebSocket, code: str, user_id: Optional[i
                 await websocket.close()
                 return
 
-    # Get user name
+    # Get user name and auto-add to participants
     user_name = "Guest"
     if user_id:
         with get_connection() as conn:
             user = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
             if user:
                 user_name = user["name"]
+            # Auto-add to session participants
+            session = conn.execute("SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)).fetchone()
+            if session:
+                conn.execute("""
+                    INSERT OR IGNORE INTO session_participants (session_id, user_id)
+                    VALUES (?, ?)
+                """, (session["id"], user_id))
 
     # Add user to connections
     active_sessions[code]["connections"][user_id] = websocket

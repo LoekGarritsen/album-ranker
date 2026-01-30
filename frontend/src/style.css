@@ -103,3 +103,27 @@ input[type="range"]::-moz-range-thumb {
     min-height: 44px;
   }
 }
+
+/* Toast animations */
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+.toast-enter-active {
+  animation: slide-in 0.3s ease-out;
+}
+
+.toast-leave-active {
+  animation: slide-in 0.3s ease-in reverse;
+}
