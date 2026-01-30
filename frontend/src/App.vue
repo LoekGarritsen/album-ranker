@@ -2,6 +2,10 @@
 import { ref, onMounted, provide, computed } from 'vue'
 import { RouterView, RouterLink } from 'vue-router'
 import { Music2, User, ChevronDown, Plus, Lock, LogOut } from 'lucide-vue-next'
+import MiniPlayer from './components/MiniPlayer.vue'
+import { useSession } from './composables/useSession'
+
+const { isInSession, toasts } = useSession()
 
 const users = ref([])
 const currentUser = ref(null)
@@ -192,7 +196,7 @@ onMounted(loadUsers)
     />
 
     <!-- Main content -->
-    <main class="pt-20 pb-8 px-4">
+    <main class="pt-20 px-4" :class="isInSession ? 'pb-24' : 'pb-8'">
       <div class="max-w-6xl mx-auto">
         <div v-if="!currentUser" class="text-center py-16">
           <User class="w-16 h-16 mx-auto mb-4 text-slate-600" />
@@ -209,6 +213,9 @@ onMounted(loadUsers)
         <RouterView v-else />
       </div>
     </main>
+
+    <!-- Mini Player (shows when in session but not on session page) -->
+    <MiniPlayer />
 
     <!-- PIN Modal -->
     <div
@@ -292,6 +299,20 @@ onMounted(loadUsers)
           </div>
         </form>
       </div>
+    </div>
+
+    <!-- Global Toast Notifications -->
+    <div class="fixed bottom-20 right-4 z-50 flex flex-col gap-2" :class="{ 'bottom-4': !isInSession }">
+      <TransitionGroup name="toast">
+        <div
+          v-for="toast in toasts"
+          :key="toast.id"
+          class="px-4 py-3 rounded-lg shadow-lg text-sm max-w-xs animate-slide-in"
+          :class="toast.type === 'success' ? 'bg-green-500/90 text-white' : 'bg-white/10 backdrop-blur-lg text-white border border-white/20'"
+        >
+          {{ toast.message }}
+        </div>
+      </TransitionGroup>
     </div>
   </div>
 </template>

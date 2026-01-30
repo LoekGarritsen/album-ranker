@@ -5,10 +5,36 @@ import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, Sk
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
+import { useSession } from '../composables/useSession'
 
 const route = useRoute()
 const router = useRouter()
 const currentUser = inject('currentUser')
+
+// Global session state
+const {
+  session,
+  album,
+  isPlaying,
+  playbackPosition,
+  currentTrackDuration,
+  listeners,
+  currentTrack,
+  progressPercent,
+  isInSession,
+  joinSession,
+  leaveSession,
+  selectTrack,
+  togglePlayback,
+  seekTo,
+  skipPrevious,
+  skipNext,
+  showToast,
+  formatDuration,
+  startProgressInterval,
+  stopProgressInterval,
+  connectWebSocket
+} = useSession()
 
 // Spotify player
 const {
@@ -31,21 +57,8 @@ const {
   cleanup: cleanupSpotify
 } = useSpotifyPlayer()
 
-const session = ref(null)
-const album = ref(null)
 const loading = ref(true)
 const copied = ref(false)
-const ws = ref(null)
-
-// Playback state
-const isPlaying = ref(false)
-const playbackPosition = ref(0)
-const currentTrackDuration = ref(0)
-const listeners = ref([])
-
-// Playback interval for progress updates
-let progressInterval = null
-let pingInterval = null
 
 // Sync state
 const isSyncing = ref(false)
@@ -57,64 +70,34 @@ const ratingModal = ref({ show: false, type: null, item: null, album: null })
 // Track detail modal state
 const trackDetailModal = ref({ show: false, trackId: null })
 
-// Toast notifications
-const toasts = ref([])
-let toastId = 0
-
-function showToast(message, type = 'info') {
-  const id = ++toastId
-  toasts.value.push({ id, message, type })
-  setTimeout(() => {
-    toasts.value = toasts.value.filter(t => t.id !== id)
-  }, 3000)
-}
-
 const sessionCode = computed(() => route.params.code)
-
-const currentTrack = computed(() => {
-  if (!album.value?.tracks || !session.value?.current_track_id) return null
-  return album.value.tracks.find(t => t.id === session.value.current_track_id)
-})
-
-const progressPercent = computed(() => {
-  if (!currentTrackDuration.value) return 0
-  return Math.min(100, (playbackPosition.value / currentTrackDuration.value) * 100)
-})
 
 async function loadSession() {
   if (!sessionCode.value) return
 
   loading.value = true
   try {
-    const res = await fetch(`/api/sessions/${sessionCode.value}`)
-    if (res.ok) {
-      session.value = await res.json()
-      currentTrackDuration.value = session.value.current_track_duration || 0
-      isPlaying.value = session.value.playback?.is_playing || false
-      playbackPosition.value = session.value.playback?.position || 0
+    // Check if already in this session
+    if (session.value?.code === sessionCode.value) {
+      // Already connected, just refresh Spotify state
+      await initSpotifyIfNeeded()
+      loading.value = false
+      return
+    }
 
-      // Extract listeners from participants who are online
-      listeners.value = session.value.participants?.filter(p => p.is_online) || []
-
-      await loadAlbum()
-      connectWebSocket()
-
-      // Initialize Spotify player if connected
-      setSpotifyUserId(currentUser.value?.id)
-      await checkSpotifyConnection()
-      if (spotifyConnected.value) {
-        await initSpotifyPlayer()
-        if (spotifyReady.value) {
-          startPositionTracking()
-        }
-      }
-
-      // Start progress interval if playing (for non-Spotify users)
-      if (isPlaying.value && !spotifyReady.value) {
-        startProgressInterval()
-      }
-    } else {
+    // Join the session using global store
+    const success = await joinSession(sessionCode.value, currentUser.value)
+    if (!success) {
       router.push('/')
+      return
+    }
+
+    // Initialize Spotify player if connected
+    await initSpotifyIfNeeded()
+
+    // Start progress interval if playing (for non-Spotify users)
+    if (isPlaying.value && !spotifyReady.value) {
+      startProgressInterval()
     }
   } catch (e) {
     console.error('Failed to load session:', e)
@@ -122,311 +105,67 @@ async function loadSession() {
   loading.value = false
 }
 
-async function loadAlbum() {
-  if (!session.value?.album_id) return
-
-  try {
-    const res = await fetch('/api/albums')
-    if (res.ok) {
-      const albums = await res.json()
-      album.value = albums.find(a => a.id === session.value.album_id)
-
-      // Update duration if we have a current track
-      if (currentTrack.value) {
-        currentTrackDuration.value = currentTrack.value.duration_ms
-      }
+async function initSpotifyIfNeeded() {
+  setSpotifyUserId(currentUser.value?.id)
+  await checkSpotifyConnection()
+  if (spotifyConnected.value) {
+    await initSpotifyPlayer()
+    if (spotifyReady.value) {
+      startPositionTracking()
     }
-  } catch (e) {
-    console.error('Failed to load album:', e)
   }
 }
 
-function connectWebSocket() {
-  // Clear any existing ping interval
-  if (pingInterval) {
-    clearInterval(pingInterval)
-    pingInterval = null
-  }
+async function handleSelectTrack(trackId) {
+  await selectTrack(trackId, currentUser.value)
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const userId = currentUser.value?.id || ''
-  const wsUrl = `${protocol}//${window.location.host}/api/sessions/${sessionCode.value}/ws?user_id=${userId}`
-
-  ws.value = new WebSocket(wsUrl)
-
-  ws.value.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    handleWebSocketMessage(data)
-  }
-
-  ws.value.onopen = () => {
-    // Keep connection alive with pings
-    pingInterval = setInterval(() => {
-      if (ws.value?.readyState === WebSocket.OPEN) {
-        ws.value.send(JSON.stringify({ type: 'ping' }))
-      }
-    }, 30000)
-  }
-
-  ws.value.onclose = () => {
-    if (pingInterval) {
-      clearInterval(pingInterval)
-      pingInterval = null
-    }
-    stopProgressInterval()
-    // Attempt to reconnect after 3 seconds
-    setTimeout(() => {
-      if (session.value?.is_active) {
-        connectWebSocket()
-      }
-    }, 3000)
-  }
-}
-
-async function handleWebSocketMessage(data) {
-  switch (data.type) {
-    case 'sync':
-      session.value.current_track_id = data.track_id
-      isPlaying.value = data.is_playing
-      playbackPosition.value = data.position
-      listeners.value = data.listeners || []
-
-      // Sync Spotify playback if ready
-      if (spotifyReady.value && data.is_playing) {
-        const track = album.value?.tracks?.find(t => t.id === data.track_id)
-        if (track?.spotify_id) {
-          await spotifyPlay(`spotify:track:${track.spotify_id}`, data.position)
-        }
-      }
-
-      if (data.is_playing && !spotifyReady.value) {
-        startProgressInterval()
-      }
-      break
-
-    case 'track_change':
-      // Stop any existing progress tracking
-      stopProgressInterval()
-
-      session.value.current_track_id = data.track_id
-      currentTrackDuration.value = data.duration || 0
-      playbackPosition.value = data.position || 0
-      isPlaying.value = data.is_playing || false
-
-      // Show who changed the track
-      if (data.changed_by && data.changed_by !== currentUser.value?.id) {
-        const trackName = album.value?.tracks?.find(t => t.id === data.track_id)?.name
-        showToast(`${data.changed_by_name || 'Someone'} selected "${trackName || 'a track'}"`)
-      }
-
-      // Pause Spotify when track changes (user needs to press play)
-      if (spotifyReady.value) {
-        await spotifyPause()
-      }
-
-      // Only start progress interval for non-Spotify users when playing
-      if (isPlaying.value && !spotifyReady.value) {
-        startProgressInterval()
-      }
-      break
-
-    case 'playback':
-      if (data.action === 'play') {
-        isPlaying.value = true
-        playbackPosition.value = data.position
-
-        // Start Spotify playback
-        if (spotifyReady.value) {
-          const track = currentTrack.value
-          if (track?.spotify_id) {
-            await spotifyPlay(`spotify:track:${track.spotify_id}`, data.position)
-          }
-        } else {
-          startProgressInterval()
-        }
-      } else if (data.action === 'pause') {
-        isPlaying.value = false
-        playbackPosition.value = data.position
-
-        if (spotifyReady.value) {
-          await spotifyPause()
-        }
-        stopProgressInterval()
-      } else if (data.action === 'seek') {
-        playbackPosition.value = data.position
-
-        if (spotifyReady.value) {
-          await spotifySeek(data.position)
-        }
-      }
-      break
-
-    case 'user_joined':
-      // Add to listeners if not already there
-      if (!listeners.value.find(l => l.user_id === data.user_id)) {
-        listeners.value.push({ user_id: data.user_id, user_name: data.user_name })
-        // Show toast for other users joining
-        if (data.user_id !== currentUser.value?.id) {
-          showToast(`${data.user_name} joined the session`, 'success')
-        }
-      }
-      break
-
-    case 'user_left': {
-      const leftUser = listeners.value.find(l => l.user_id === data.user_id)
-      listeners.value = listeners.value.filter(l => l.user_id !== data.user_id)
-      if (leftUser && data.user_id !== currentUser.value?.id) {
-        showToast(`${leftUser.user_name || data.user_name} left the session`)
-      }
-      break
-    }
-
-    case 'rating':
-      // Update track ranking in real-time
-      if (album.value?.tracks) {
-        const track = album.value.tracks.find(t => t.id === data.track_id)
-        if (track) {
-          // Find existing ranking for this user or add new one
-          const existingIdx = track.rankings?.findIndex(r => r.user_id === data.user_id)
-          const newRanking = {
-            user_id: data.user_id,
-            user_name: data.user_name,
-            score: data.score,
-            comment: data.comment
-          }
-          if (existingIdx >= 0) {
-            track.rankings[existingIdx] = newRanking
-          } else {
-            if (!track.rankings) track.rankings = []
-            track.rankings.push(newRanking)
-          }
-          // Show toast for ratings from others
-          if (data.user_id !== currentUser.value?.id) {
-            showToast(`${data.user_name} rated "${track.name}" ${data.score.toFixed(1)}`, 'success')
-          }
-        }
-      }
-      break
-  }
-}
-
-function startProgressInterval() {
-  stopProgressInterval()
-  progressInterval = setInterval(() => {
-    if (isPlaying.value && currentTrackDuration.value > 0 && !isAutoAdvancing.value) {
-      const newPosition = playbackPosition.value + 100
-      // Cap position at duration
-      if (newPosition >= currentTrackDuration.value) {
-        playbackPosition.value = currentTrackDuration.value
-        stopProgressInterval()
-        // Track ended, auto-advance to next
-        autoAdvanceTrack()
-      } else {
-        playbackPosition.value = newPosition
-      }
-    }
-  }, 100)
-}
-
-function stopProgressInterval() {
-  if (progressInterval) {
-    clearInterval(progressInterval)
-    progressInterval = null
-  }
-}
-
-async function selectTrack(trackId, autoPlay = true) {
-  try {
-    await fetch(`/api/sessions/${sessionCode.value}/track?track_id=${trackId}`, {
-      method: 'POST',
-      headers: { 'X-User-Id': currentUser.value?.id?.toString() || '' }
-    })
-    session.value.current_track_id = trackId
+  // Also trigger Spotify playback
+  if (spotifyReady.value) {
     const track = album.value?.tracks?.find(t => t.id === trackId)
-    if (track) {
-      currentTrackDuration.value = track.duration_ms
+    if (track?.spotify_id) {
+      await spotifyPlay(`spotify:track:${track.spotify_id}`, 0)
     }
-    playbackPosition.value = 0
-    isPlaying.value = false
-    stopProgressInterval()
-
-    // Auto-play the selected track
-    if (autoPlay) {
-      await new Promise(resolve => setTimeout(resolve, 100))
-      await togglePlayback()
-    }
-  } catch (e) {
-    console.error('Failed to update track:', e)
   }
 }
 
-async function togglePlayback() {
-  const action = isPlaying.value ? 'pause' : 'play'
+async function handleTogglePlayback() {
+  const wasPlaying = isPlaying.value
+  await togglePlayback(currentUser.value)
 
   // Handle Spotify playback
   if (spotifyReady.value) {
-    if (action === 'play') {
+    if (!wasPlaying) {
       const track = currentTrack.value
       if (track?.spotify_id) {
-        const spotifyUri = `spotify:track:${track.spotify_id}`
-        const success = await spotifyPlay(spotifyUri, playbackPosition.value)
-        if (!success) {
-          console.error('Spotify playback failed')
-        }
+        await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
       }
     } else {
       await spotifyPause()
     }
   }
-
-  // Always broadcast to sync other users
-  try {
-    await fetch(`/api/sessions/${sessionCode.value}/playback?action=${action}`, {
-      method: 'POST',
-      headers: { 'X-User-Id': currentUser.value?.id?.toString() || '' }
-    })
-  } catch (e) {
-    console.error('Failed to toggle playback:', e)
-  }
 }
 
-async function seekTo(percent) {
-  const position = Math.floor((percent / 100) * currentTrackDuration.value)
-  playbackPosition.value = position
+async function handleSeekTo(percent) {
+  await seekTo(percent, currentUser.value)
 
-  // Seek in Spotify if ready
   if (spotifyReady.value) {
+    const position = Math.floor((percent / 100) * currentTrackDuration.value)
     await spotifySeek(position)
-  }
-
-  try {
-    await fetch(`/api/sessions/${sessionCode.value}/playback?action=seek&position=${position}`, {
-      method: 'POST',
-      headers: { 'X-User-Id': currentUser.value?.id?.toString() || '' }
-    })
-  } catch (e) {
-    console.error('Failed to seek:', e)
   }
 }
 
 function handleProgressClick(event) {
   const rect = event.currentTarget.getBoundingClientRect()
   const percent = ((event.clientX - rect.left) / rect.width) * 100
-  seekTo(Math.max(0, Math.min(100, percent)))
+  handleSeekTo(Math.max(0, Math.min(100, percent)))
 }
 
-function skipPrevious() {
-  const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value.current_track_id)
-  if (trackIdx > 0) {
-    selectTrack(album.value.tracks[trackIdx - 1].id)
-  }
+function handleSkipPrevious() {
+  skipPrevious(currentUser.value)
 }
 
-function skipNext() {
-  const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value.current_track_id)
-  if (trackIdx !== undefined && trackIdx < album.value.tracks.length - 1) {
-    selectTrack(album.value.tracks[trackIdx + 1].id)
-  }
+function handleSkipNext() {
+  skipNext(currentUser.value)
 }
 
 async function copyCode() {
@@ -485,31 +224,20 @@ function getUserRanking(rankings) {
   return rankings?.find(r => r.user_id === currentUser.value?.id)
 }
 
-function formatDuration(ms) {
-  if (!ms) return '0:00'
-  const mins = Math.floor(ms / 60000)
-  const secs = Math.floor((ms % 60000) / 1000)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
-
 // Auto-advance to next track
 async function autoAdvanceTrack() {
   if (isAutoAdvancing.value) return
   isAutoAdvancing.value = true
 
   try {
-    const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value.current_track_id)
+    const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
     if (trackIdx !== undefined && trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
       const nextTrack = album.value.tracks[trackIdx + 1]
-      // selectTrack with autoPlay=true handles everything
-      await selectTrack(nextTrack.id, true)
+      await handleSelectTrack(nextTrack.id)
       isAutoAdvancing.value = false
     } else {
       // Last track, pause
-      isPlaying.value = false
-      if (spotifyReady.value) {
-        await spotifyPause()
-      }
+      await handleTogglePlayback()
       isAutoAdvancing.value = false
     }
   } catch (e) {
@@ -560,7 +288,6 @@ async function syncAudio() {
 
     // Update local state
     playbackPosition.value = serverPosition
-    isPlaying.value = serverIsPlaying
     session.value.current_track_id = serverTrackId
 
     // Sync Spotify player
@@ -580,16 +307,9 @@ async function syncAudio() {
 onMounted(loadSession)
 
 onUnmounted(() => {
-  stopProgressInterval()
+  // Don't cleanup session - keep it running in background
+  // Only cleanup Spotify tracking for this view
   stopPositionTracking()
-  cleanupSpotify()
-  if (pingInterval) {
-    clearInterval(pingInterval)
-    pingInterval = null
-  }
-  if (ws.value) {
-    ws.value.close()
-  }
 })
 </script>
 
@@ -741,13 +461,13 @@ onUnmounted(() => {
           <!-- Playback controls -->
           <div class="flex items-center gap-2">
             <button
-              @click="skipPrevious"
+              @click="handleSkipPrevious"
               class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
             >
               <SkipBack class="w-5 h-5" />
             </button>
             <button
-              @click="togglePlayback"
+              @click="handleTogglePlayback"
               class="p-3 bg-accent-primary text-black rounded-full hover:bg-accent-primary/90 transition-colors min-h-[48px] min-w-[48px] flex items-center justify-center"
               :disabled="spotifyConnected && !spotifyReady"
               :class="{ 'opacity-50 cursor-not-allowed': spotifyConnected && !spotifyReady }"
@@ -756,7 +476,7 @@ onUnmounted(() => {
               <Play v-else class="w-6 h-6 ml-0.5" />
             </button>
             <button
-              @click="skipNext"
+              @click="handleSkipNext"
               class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
             >
               <SkipForward class="w-5 h-5" />
@@ -791,7 +511,7 @@ onUnmounted(() => {
         <div
           v-for="track in album.tracks"
           :key="track.id"
-          @click="selectTrack(track.id)"
+          @click="handleSelectTrack(track.id)"
           class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-colors border-b border-white/5 last:border-0"
           :class="session.current_track_id === track.id ? 'bg-accent-primary/10' : 'hover:bg-white/5'"
         >
@@ -865,19 +585,5 @@ onUnmounted(() => {
       @close="closeRating"
       @submit="submitRating"
     />
-
-    <!-- Toast notifications -->
-    <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-      <transition-group name="toast">
-        <div
-          v-for="toast in toasts"
-          :key="toast.id"
-          class="px-4 py-3 rounded-lg shadow-lg text-sm max-w-xs animate-slide-in"
-          :class="toast.type === 'success' ? 'bg-green-500/90 text-white' : 'bg-white/10 backdrop-blur-lg text-white border border-white/20'"
-        >
-          {{ toast.message }}
-        </div>
-      </transition-group>
-    </div>
   </div>
 </template>
