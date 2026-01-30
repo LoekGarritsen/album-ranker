@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw } from 'lucide-vue-next'
+import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw, Info } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
+import TrackDetailModal from '../components/TrackDetailModal.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 
 const route = useRoute()
@@ -52,6 +53,9 @@ const isAutoAdvancing = ref(false)
 
 // Rating modal state
 const ratingModal = ref({ show: false, type: null, item: null, album: null })
+
+// Track detail modal state
+const trackDetailModal = ref({ show: false, trackId: null })
 
 const sessionCode = computed(() => route.params.code)
 
@@ -277,7 +281,7 @@ function stopProgressInterval() {
   }
 }
 
-async function selectTrack(trackId) {
+async function selectTrack(trackId, autoPlay = true) {
   try {
     await fetch(`/api/sessions/${sessionCode.value}/track?track_id=${trackId}`, {
       method: 'POST',
@@ -287,15 +291,16 @@ async function selectTrack(trackId) {
     const track = album.value?.tracks?.find(t => t.id === trackId)
     if (track) {
       currentTrackDuration.value = track.duration_ms
-
-      // If Spotify is ready, pause any current playback
-      if (spotifyReady.value) {
-        await spotifyPause()
-      }
     }
     playbackPosition.value = 0
     isPlaying.value = false
     stopProgressInterval()
+
+    // Auto-play the selected track
+    if (autoPlay) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await togglePlayback()
+    }
   } catch (e) {
     console.error('Failed to update track:', e)
   }
@@ -384,6 +389,19 @@ function closeRating() {
   ratingModal.value = { show: false, type: null, item: null, album: null }
 }
 
+function openTrackDetail(track) {
+  trackDetailModal.value = { show: true, trackId: track.id }
+}
+
+function closeTrackDetail() {
+  trackDetailModal.value = { show: false, trackId: null }
+}
+
+function handleTrackDetailRate(track) {
+  closeTrackDetail()
+  openTrackRating(track)
+}
+
 async function submitRating(data) {
   const res = await fetch('/api/rankings/track', {
     method: 'POST',
@@ -430,12 +448,9 @@ async function autoAdvanceTrack() {
     const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value.current_track_id)
     if (trackIdx !== undefined && trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
       const nextTrack = album.value.tracks[trackIdx + 1]
-      await selectTrack(nextTrack.id)
-      // Small delay to let state settle, then auto-play
-      setTimeout(() => {
-        togglePlayback()
-        isAutoAdvancing.value = false
-      }, 300)
+      // selectTrack with autoPlay=true handles everything
+      await selectTrack(nextTrack.id, true)
+      isAutoAdvancing.value = false
     } else {
       // Last track, pause
       isPlaying.value = false
@@ -755,6 +770,15 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- Info button -->
+          <button
+            @click.stop="openTrackDetail(track)"
+            class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
+            title="Track info"
+          >
+            <Info class="w-4 h-4 text-slate-400" />
+          </button>
+
           <!-- Rate button -->
           <button
             @click.stop="openTrackRating(track)"
@@ -766,6 +790,15 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Track detail modal -->
+    <TrackDetailModal
+      v-if="trackDetailModal.show"
+      :track-id="trackDetailModal.trackId"
+      :current-user="currentUser"
+      @close="closeTrackDetail"
+      @rate="handleTrackDetailRate"
+    />
 
     <!-- Rating modal -->
     <RatingModal
