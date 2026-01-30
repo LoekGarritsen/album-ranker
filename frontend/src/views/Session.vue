@@ -76,12 +76,13 @@ async function loadSession() {
   if (!sessionCode.value) return
 
   loading.value = true
+
   try {
     // Check if already in this session
     if (session.value?.code === sessionCode.value) {
       // Already connected, just refresh Spotify state
-      await initSpotifyIfNeeded()
       loading.value = false
+      initSpotifyIfNeeded()
       return
     }
 

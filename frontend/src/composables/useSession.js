@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { useSpotifyPlayer } from './useSpotifyPlayer'
 
 // Global session state (singleton)
 const session = ref(null)
@@ -28,6 +29,14 @@ const progressPercent = computed(() => {
 })
 
 export function useSession() {
+  // Get Spotify player (singleton)
+  const {
+    isReady: spotifyReady,
+    play: spotifyPlay,
+    pause: spotifyPause,
+    resume: spotifyResume,
+    seek: spotifySeek
+  } = useSpotifyPlayer()
   function showToast(message, type = 'info') {
     const id = ++toastId
     toasts.value.push({ id, message, type })
@@ -278,9 +287,16 @@ export function useSession() {
       isPlaying.value = false
       stopProgressInterval()
 
-      // Auto-play
-      await new Promise(resolve => setTimeout(resolve, 100))
-      await togglePlayback(currentUser)
+      // Play on Spotify if connected
+      if (spotifyReady.value && track?.spotify_id) {
+        await spotifyPlay(`spotify:track:${track.spotify_id}`, 0)
+        isPlaying.value = true
+        startProgressInterval()
+      } else {
+        // Auto-play via session state only
+        await new Promise(resolve => setTimeout(resolve, 100))
+        await togglePlayback(currentUser)
+      }
     } catch (e) {
       console.error('Failed to select track:', e)
     }
@@ -300,6 +316,22 @@ export function useSession() {
         method: 'POST',
         headers
       })
+
+      // Control Spotify if connected
+      if (spotifyReady.value) {
+        if (action === 'pause') {
+          await spotifyPause()
+          isPlaying.value = false
+          stopProgressInterval()
+        } else {
+          const track = currentTrack.value
+          if (track?.spotify_id) {
+            await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
+            isPlaying.value = true
+            startProgressInterval()
+          }
+        }
+      }
     } catch (e) {
       console.error('Failed to toggle playback:', e)
     }
@@ -320,6 +352,11 @@ export function useSession() {
         method: 'POST',
         headers
       })
+
+      // Seek on Spotify if connected
+      if (spotifyReady.value) {
+        await spotifySeek(position)
+      }
     } catch (e) {
       console.error('Failed to seek:', e)
     }
@@ -334,7 +371,7 @@ export function useSession() {
 
   function skipNext(currentUser) {
     const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
-    if (trackIdx !== undefined && trackIdx < album.value.tracks.length - 1) {
+    if (trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
       selectTrack(album.value.tracks[trackIdx + 1].id, currentUser)
     }
   }
