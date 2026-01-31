@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw, Info } from 'lucide-vue-next'
+import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw, Info, Disc3, Search, X } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
@@ -22,9 +22,11 @@ const {
   currentTrack,
   progressPercent,
   isInSession,
+  hasAlbum,
   joinSession,
   leaveSession,
   selectTrack,
+  setAlbum,
   togglePlayback,
   seekTo,
   skipPrevious,
@@ -33,7 +35,8 @@ const {
   formatDuration,
   startProgressInterval,
   stopProgressInterval,
-  connectWebSocket
+  connectWebSocket,
+  syncWithServer
 } = useSession()
 
 // Spotify player
@@ -64,11 +67,34 @@ const copied = ref(false)
 const isSyncing = ref(false)
 const isAutoAdvancing = ref(false)
 
+async function handleSyncAudio() {
+  if (isSyncing.value) return
+  isSyncing.value = true
+  await syncWithServer()
+  isSyncing.value = false
+}
+
 // Rating modal state
 const ratingModal = ref({ show: false, type: null, item: null, album: null })
 
 // Track detail modal state
 const trackDetailModal = ref({ show: false, trackId: null })
+
+// Album picker state
+const showAlbumPicker = ref(false)
+const allAlbums = ref([])
+const albumSearch = ref('')
+const loadingAlbums = ref(false)
+const settingAlbum = ref(false)
+
+const filteredAlbums = computed(() => {
+  if (!albumSearch.value.trim()) return allAlbums.value
+  const search = albumSearch.value.toLowerCase()
+  return allAlbums.value.filter(a =>
+    a.name.toLowerCase().includes(search) ||
+    a.artist.toLowerCase().includes(search)
+  )
+})
 
 const sessionCode = computed(() => route.params.code)
 
@@ -93,9 +119,6 @@ async function loadSession() {
       return
     }
 
-    // Initialize Spotify player if connected
-    await initSpotifyIfNeeded()
-
     // Start progress interval if playing (for non-Spotify users)
     if (isPlaying.value && !spotifyReady.value) {
       startProgressInterval()
@@ -104,6 +127,9 @@ async function loadSession() {
     console.error('Failed to load session:', e)
   }
   loading.value = false
+
+  // Initialize Spotify player in background (don't block loading)
+  initSpotifyIfNeeded()
 }
 
 async function initSpotifyIfNeeded() {
@@ -117,16 +143,44 @@ async function initSpotifyIfNeeded() {
   }
 }
 
-async function handleSelectTrack(trackId) {
-  await selectTrack(trackId, currentUser.value)
-
-  // Also trigger Spotify playback
-  if (spotifyReady.value) {
-    const track = album.value?.tracks?.find(t => t.id === trackId)
-    if (track?.spotify_id) {
-      await spotifyPlay(`spotify:track:${track.spotify_id}`, 0)
-    }
+async function openAlbumPicker() {
+  showAlbumPicker.value = true
+  albumSearch.value = ''
+  if (allAlbums.value.length === 0) {
+    await loadAllAlbums()
   }
+}
+
+function closeAlbumPicker() {
+  showAlbumPicker.value = false
+  albumSearch.value = ''
+}
+
+async function loadAllAlbums() {
+  loadingAlbums.value = true
+  try {
+    const res = await fetch('/api/albums')
+    if (res.ok) {
+      allAlbums.value = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to load albums:', e)
+  }
+  loadingAlbums.value = false
+}
+
+async function handleSelectAlbum(selectedAlbum) {
+  settingAlbum.value = true
+  const success = await setAlbum(selectedAlbum.id, currentUser.value)
+  settingAlbum.value = false
+  if (success) {
+    closeAlbumPicker()
+  }
+}
+
+async function handleSelectTrack(trackId) {
+  // selectTrack handles both backend sync and Spotify playback
+  await selectTrack(trackId, currentUser.value)
 }
 
 async function handleTogglePlayback() {
@@ -247,15 +301,71 @@ async function autoAdvanceTrack() {
   }
 }
 
-// Sync position from Spotify player and handle track end
-watch(spotifyPosition, (pos) => {
-  if (spotifyReady.value && !spotifyPaused.value) {
-    playbackPosition.value = pos
+// When Spotify position drifts from room position, sync Spotify to room (room is source of truth)
+watch(spotifyPosition, async (spotifyPos) => {
+  if (!spotifyReady.value || spotifyPaused.value || isSyncing.value) return
 
-    // Check if track has ended (within 1.5 seconds of end to account for polling delay)
-    if (!isAutoAdvancing.value && currentTrackDuration.value > 0 && pos >= currentTrackDuration.value - 1500) {
-      autoAdvanceTrack()
+  // Check for track end (auto-advance)
+  if (!isAutoAdvancing.value && currentTrackDuration.value > 0 && spotifyPos >= currentTrackDuration.value - 1500) {
+    autoAdvanceTrack()
+    return
+  }
+
+  // Room position is source of truth - check if Spotify drifted too far
+  const drift = Math.abs(playbackPosition.value - spotifyPos)
+  if (drift > 2000) { // More than 2 seconds drift
+    console.log(`Spotify drift detected: ${drift}ms, syncing Spotify to room position ${playbackPosition.value}ms`)
+    await spotifySeek(playbackPosition.value)
+  }
+})
+
+// When Spotify pauses locally (not via room controls), sync it back to room state
+watch(spotifyPaused, async (paused, wasPaused) => {
+  if (!spotifyReady.value || isSyncing.value) return
+
+  // Spotify was playing and is now paused, but room is still playing
+  if (paused && !wasPaused && isPlaying.value) {
+    console.log('Spotify paused locally but room is playing, resuming Spotify')
+    const track = currentTrack.value
+    if (track?.spotify_id) {
+      // Resume Spotify at room position
+      await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
     }
+  }
+  // Spotify was paused and is now playing, but room is paused
+  else if (!paused && wasPaused && !isPlaying.value) {
+    console.log('Spotify resumed locally but room is paused, pausing Spotify')
+    await spotifyPause()
+  }
+})
+
+// Sync Spotify player when room playback state changes (e.g., another user plays/pauses)
+watch(isPlaying, async (roomIsPlaying, wasPlaying) => {
+  if (!spotifyReady.value || isSyncing.value) return
+
+  const track = currentTrack.value
+  if (!track?.spotify_id) return
+
+  // Room started playing - sync Spotify to play
+  if (roomIsPlaying && !wasPlaying) {
+    if (spotifyPaused.value) {
+      console.log('Room started playing, starting Spotify at position', playbackPosition.value)
+      await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
+    }
+  }
+  // Room paused - pause Spotify
+  else if (!roomIsPlaying && wasPlaying) {
+    if (!spotifyPaused.value) {
+      console.log('Room paused, pausing Spotify')
+      await spotifyPause()
+    }
+  }
+})
+
+// Redirect to rooms if session is ended (deleted by admin)
+watch(session, (newSession) => {
+  if (newSession === null && !loading.value) {
+    router.push('/rooms')
   }
 })
 
@@ -265,43 +375,6 @@ async function handleSpotifyConnect() {
     await disconnectSpotify()
   } else {
     await connectSpotify()
-  }
-}
-
-// Sync audio with session state
-async function syncAudio() {
-  if (!spotifyReady.value || !currentTrack.value?.spotify_id || isSyncing.value) return
-
-  isSyncing.value = true
-  try {
-    // Fetch latest session state from server
-    const res = await fetch(`/api/sessions/${sessionCode.value}`)
-    if (!res.ok) return
-
-    const sessionData = await res.json()
-    const serverPosition = sessionData.playback?.position || 0
-    const serverIsPlaying = sessionData.playback?.is_playing || false
-    const serverTrackId = sessionData.current_track_id
-
-    // Find the track
-    const track = album.value?.tracks?.find(t => t.id === serverTrackId)
-    if (!track?.spotify_id) return
-
-    // Update local state
-    playbackPosition.value = serverPosition
-    session.value.current_track_id = serverTrackId
-
-    // Sync Spotify player
-    if (serverIsPlaying) {
-      await spotifyPlay(`spotify:track:${track.spotify_id}`, serverPosition)
-    } else {
-      await spotifyPause()
-      await spotifySeek(serverPosition)
-    }
-  } catch (e) {
-    console.error('Failed to sync audio:', e)
-  } finally {
-    isSyncing.value = false
   }
 }
 
@@ -325,24 +398,32 @@ onUnmounted(() => {
       Loading session...
     </div>
 
-    <div v-else-if="session && album">
+    <div v-else-if="session">
       <!-- Session Header -->
       <div class="glass p-4 sm:p-6 mb-4">
         <div class="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6">
-          <img
-            :src="album.cover_url || '/placeholder.svg'"
-            class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl object-cover bg-white/10"
-          />
+          <div class="relative">
+            <img
+              v-if="album?.cover_url"
+              :src="album.cover_url"
+              class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl object-cover bg-white/10"
+            />
+            <div v-else class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl bg-white/10 flex items-center justify-center">
+              <Disc3 class="w-12 h-12 text-slate-500" />
+            </div>
+          </div>
           <div class="flex-1 text-center sm:text-left">
             <div class="flex items-center justify-center sm:justify-start gap-2 text-accent-primary text-sm mb-2">
               <Radio class="w-4 h-4 animate-pulse" />
-              Listening Session
+              {{ session.name }}
             </div>
-            <h1 class="text-xl sm:text-2xl font-heading font-bold mb-1">{{ album.name }}</h1>
-            <p class="text-slate-400 mb-4">{{ album.artist }}</p>
+            <h1 v-if="album" class="text-xl sm:text-2xl font-heading font-bold mb-1">{{ album.name }}</h1>
+            <h1 v-else class="text-xl sm:text-2xl font-heading font-bold mb-1 text-slate-400">No album selected</h1>
+            <p v-if="album" class="text-slate-400 mb-4">{{ album.artist }}</p>
+            <p v-else class="text-slate-500 mb-4">Select an album to start listening</p>
 
-            <!-- Session Code -->
-            <div class="flex items-center justify-center sm:justify-start gap-3">
+            <!-- Session Code + Change Album -->
+            <div class="flex items-center justify-center sm:justify-start gap-3 flex-wrap">
               <div class="px-4 py-2 bg-white/10 rounded-lg font-mono text-base sm:text-lg tracking-wider">
                 {{ sessionCode }}
               </div>
@@ -352,6 +433,13 @@ onUnmounted(() => {
               >
                 <Check v-if="copied" class="w-5 h-5 text-green-400" />
                 <Copy v-else class="w-5 h-5" />
+              </button>
+              <button
+                @click="openAlbumPicker"
+                class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px]"
+              >
+                <Disc3 class="w-4 h-4" />
+                {{ album ? 'Change Album' : 'Select Album' }}
               </button>
             </div>
           </div>
@@ -382,8 +470,22 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Spotify Connect Banner -->
-      <div v-if="!spotifyConnected" class="glass p-4 mb-4 flex items-center justify-between">
+      <!-- Album Picker Prompt (when no album) -->
+      <div v-if="!hasAlbum" class="glass p-8 mb-4 text-center">
+        <Disc3 class="w-16 h-16 mx-auto mb-4 text-slate-500" />
+        <h2 class="text-xl font-heading font-medium text-slate-300 mb-2">No album selected</h2>
+        <p class="text-slate-500 mb-6">Choose an album to start listening together</p>
+        <button
+          @click="openAlbumPicker"
+          class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
+        >
+          <Disc3 class="w-5 h-5" />
+          Select Album
+        </button>
+      </div>
+
+      <!-- Spotify Connect Banner (only when album is selected) -->
+      <div v-if="hasAlbum && !spotifyConnected" class="glass p-4 mb-4 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 bg-[#1DB954] rounded-full flex items-center justify-center">
             <Music class="w-5 h-5 text-black" />
@@ -401,8 +503,8 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- Spotify Status Banner (when connected) -->
-      <div v-else-if="spotifyConnected && !spotifyReady" class="glass p-4 mb-4 flex items-center justify-between">
+      <!-- Spotify Status Banner (when initializing, only when album is selected) -->
+      <div v-else-if="hasAlbum && spotifyConnected && !spotifyReady" class="glass p-4 mb-4 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 bg-[#1DB954] rounded-full flex items-center justify-center animate-pulse">
             <Music class="w-5 h-5 text-black" />
@@ -421,100 +523,46 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- Playbar -->
-      <div class="glass p-4 mb-4">
-        <!-- Spotify ready indicator -->
-        <div v-if="spotifyReady" class="flex items-center gap-2 mb-3 text-xs text-[#1DB954]">
-          <Music class="w-3 h-3" />
-          <span>Playing via Spotify</span>
+      <!-- Spotify Ready Banner (when fully connected and ready) -->
+      <div v-else-if="hasAlbum && spotifyReady" class="glass p-4 mb-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-[#1DB954] rounded-full flex items-center justify-center">
+            <Music class="w-5 h-5 text-black" />
+          </div>
+          <div>
+            <p class="font-medium text-sm sm:text-base text-[#1DB954]">Spotify Ready</p>
+            <p class="text-xs text-slate-400">Playing through your Spotify</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
           <button
-            @click="syncAudio"
+            @click="handleSyncAudio"
             :disabled="isSyncing"
-            class="ml-auto flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-white hover:bg-white/10 rounded transition-colors disabled:opacity-50"
-            title="Sync audio with session"
+            class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+            :class="{ 'animate-spin': isSyncing }"
+            title="Sync with room"
           >
-            <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': isSyncing }" />
-            <span>Sync</span>
+            <RefreshCw class="w-5 h-5 text-slate-400" />
           </button>
           <button
             @click="handleSpotifyConnect"
-            class="text-slate-400 hover:text-white transition-colors"
+            class="px-4 py-2 border border-slate-600 text-slate-300 font-medium rounded-full hover:bg-white/10 transition-colors text-sm min-h-[44px]"
           >
             Disconnect
           </button>
         </div>
-
-        <div class="flex items-center gap-4">
-          <!-- Track info -->
-          <div class="flex items-center gap-3 flex-1 min-w-0">
-            <img
-              :src="album.cover_url || '/placeholder.svg'"
-              class="w-12 h-12 rounded object-cover bg-white/10 flex-shrink-0"
-            />
-            <div class="min-w-0">
-              <p class="truncate font-medium text-sm sm:text-base" :class="{ 'text-accent-primary': isPlaying }">
-                {{ currentTrack?.name || 'No track selected' }}
-              </p>
-              <p class="text-xs text-slate-500">{{ album.artist }}</p>
-            </div>
-          </div>
-
-          <!-- Playback controls -->
-          <div class="flex items-center gap-2">
-            <button
-              @click="handleSkipPrevious"
-              class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-            >
-              <SkipBack class="w-5 h-5" />
-            </button>
-            <button
-              @click="handleTogglePlayback"
-              class="p-3 bg-accent-primary text-black rounded-full hover:bg-accent-primary/90 transition-colors min-h-[48px] min-w-[48px] flex items-center justify-center"
-              :disabled="spotifyConnected && !spotifyReady"
-              :class="{ 'opacity-50 cursor-not-allowed': spotifyConnected && !spotifyReady }"
-            >
-              <Pause v-if="isPlaying" class="w-6 h-6" />
-              <Play v-else class="w-6 h-6 ml-0.5" />
-            </button>
-            <button
-              @click="handleSkipNext"
-              class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-            >
-              <SkipForward class="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        <!-- Progress bar -->
-        <div class="mt-4">
-          <div
-            class="relative h-2 bg-white/10 rounded-full cursor-pointer group"
-            @click="handleProgressClick"
-          >
-            <div
-              class="absolute left-0 top-0 h-full bg-accent-primary rounded-full transition-all"
-              :style="{ width: progressPercent + '%' }"
-            ></div>
-            <div
-              class="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
-              :style="{ left: progressPercent + '%', transform: 'translate(-50%, -50%)' }"
-            ></div>
-          </div>
-          <div class="flex justify-between text-xs text-slate-500 mt-1">
-            <span>{{ formatDuration(playbackPosition) }}</span>
-            <span>{{ formatDuration(currentTrackDuration) }}</span>
-          </div>
-        </div>
       </div>
 
-      <!-- Track List -->
-      <div class="glass overflow-hidden">
+      <!-- Track List (only when album is selected) -->
+      <div v-if="hasAlbum && album" class="glass overflow-hidden">
         <div
           v-for="track in album.tracks"
           :key="track.id"
           @click="handleSelectTrack(track.id)"
-          class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-colors border-b border-white/5 last:border-0"
-          :class="session.current_track_id === track.id ? 'bg-accent-primary/10' : 'hover:bg-white/5'"
+          class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-all duration-150 border-b border-white/5 last:border-0"
+          :class="session.current_track_id === track.id
+            ? 'bg-accent-primary/10 border-l-2 border-l-accent-primary'
+            : 'hover:bg-white/5 border-l-2 border-l-transparent'"
         >
           <div class="w-6 sm:w-8 text-center flex-shrink-0">
             <div v-if="session.current_track_id === track.id && isPlaying" class="flex items-center justify-center gap-0.5">
@@ -586,5 +634,64 @@ onUnmounted(() => {
       @close="closeRating"
       @submit="submitRating"
     />
+
+    <!-- Album Picker Modal -->
+    <div
+      v-if="showAlbumPicker"
+      class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-20 bg-black/70 overflow-y-auto"
+      @click.self="closeAlbumPicker"
+    >
+      <div class="glass w-full max-w-2xl rounded-2xl overflow-hidden">
+        <div class="p-4 border-b border-white/10 flex items-center gap-4">
+          <Search class="w-5 h-5 text-slate-400" />
+          <input
+            v-model="albumSearch"
+            type="text"
+            placeholder="Search albums..."
+            class="flex-1 bg-transparent text-white placeholder-slate-500 focus:outline-none"
+            autofocus
+          />
+          <button @click="closeAlbumPicker" class="btn-ghost">
+            <X class="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        <div class="max-h-96 overflow-y-auto">
+          <div v-if="loadingAlbums" class="p-8 text-center text-slate-400">
+            Loading albums...
+          </div>
+
+          <div v-else-if="filteredAlbums.length > 0" class="p-2 space-y-1">
+            <div
+              v-for="a in filteredAlbums"
+              :key="a.id"
+              @click="handleSelectAlbum(a)"
+              class="flex items-center gap-4 p-3 hover:bg-white/5 rounded-xl transition-colors cursor-pointer"
+              :class="{ 'opacity-50 pointer-events-none': settingAlbum }"
+            >
+              <img
+                :src="a.cover_url || '/placeholder.svg'"
+                :alt="a.name"
+                class="w-14 h-14 rounded-lg object-cover bg-white/10"
+              />
+
+              <div class="flex-1 min-w-0">
+                <h3 class="font-heading font-medium truncate">{{ a.name }}</h3>
+                <p class="text-sm text-slate-400 truncate">{{ a.artist }}</p>
+                <p class="text-xs text-slate-500">{{ a.tracks?.length || 0 }} tracks</p>
+              </div>
+
+              <div v-if="album?.id === a.id" class="px-3 py-1 bg-accent-primary/20 text-accent-primary rounded-lg text-sm">
+                Current
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="p-8 text-center text-slate-500">
+            No albums found
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

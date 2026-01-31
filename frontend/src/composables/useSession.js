@@ -10,6 +10,7 @@ const currentTrackDuration = ref(0)
 const listeners = ref([])
 const ws = ref(null)
 const toasts = ref([])
+const sessionUser = ref(null) // Store current user for auto-advance
 
 let progressInterval = null
 let pingInterval = null
@@ -17,6 +18,9 @@ let toastId = 0
 
 // Track if we're actively in a session
 const isInSession = computed(() => !!session.value?.code)
+
+// Track if session has an album selected
+const hasAlbum = computed(() => !!session.value?.album_id && !!album.value)
 
 const currentTrack = computed(() => {
   if (!album.value?.tracks || !session.value?.current_track_id) return null
@@ -60,11 +64,27 @@ export function useSession() {
         if (newPosition >= currentTrackDuration.value) {
           playbackPosition.value = currentTrackDuration.value
           stopProgressInterval()
+          // Auto-advance to next track
+          autoAdvanceToNext()
         } else {
           playbackPosition.value = newPosition
         }
       }
     }, 100)
+  }
+
+  function autoAdvanceToNext() {
+    // Only auto-advance if Spotify is NOT connected (Spotify users use Session.vue's watcher)
+    if (spotifyReady.value) return
+
+    const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
+    if (trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
+      // There's a next track, advance to it
+      selectTrack(album.value.tracks[trackIdx + 1].id, sessionUser.value)
+    } else {
+      // Last track ended, stop playback
+      isPlaying.value = false
+    }
   }
 
   function stopProgressInterval() {
@@ -90,16 +110,21 @@ export function useSession() {
     ws.value = new WebSocket(wsUrl)
 
     ws.value.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      handleWebSocketMessage(data, currentUser, onMessage)
+      try {
+        const data = JSON.parse(event.data)
+        handleWebSocketMessage(data, currentUser, onMessage)
+      } catch (e) {
+        console.error('Failed to parse WebSocket message:', e, event.data)
+      }
     }
 
     ws.value.onopen = () => {
+      // Ping every 10 seconds for more responsive sync (room is source of truth)
       pingInterval = setInterval(() => {
         if (ws.value?.readyState === WebSocket.OPEN) {
           ws.value.send(JSON.stringify({ type: 'ping' }))
         }
-      }, 30000)
+      }, 10000)
     }
 
     ws.value.onclose = () => {
@@ -109,24 +134,32 @@ export function useSession() {
       }
       // Attempt to reconnect if still in session
       setTimeout(() => {
-        if (session.value?.is_active && session.value?.code === code) {
+        if (session.value?.code === code) {
           connectWebSocket(code, userId, currentUser, onMessage)
         }
       }, 3000)
+    }
+
+    ws.value.onerror = (error) => {
+      console.error('WebSocket error:', error)
     }
   }
 
   function handleWebSocketMessage(data, currentUser, onMessage) {
     switch (data.type) {
       case 'sync':
+        // Stop any existing interval first
+        stopProgressInterval()
+
         if (session.value) {
           session.value.current_track_id = data.track_id
         }
-        isPlaying.value = data.is_playing
-        playbackPosition.value = data.position
+        playbackPosition.value = data.position || 0
+        isPlaying.value = data.is_playing || false
         listeners.value = data.listeners || []
 
-        if (data.is_playing) {
+        // Only start interval if actually playing
+        if (isPlaying.value) {
           startProgressInterval()
         }
         break
@@ -151,16 +184,42 @@ export function useSession() {
         break
 
       case 'playback':
+        stopProgressInterval()
+        playbackPosition.value = data.position || 0
+
         if (data.action === 'play') {
           isPlaying.value = true
-          playbackPosition.value = data.position
           startProgressInterval()
         } else if (data.action === 'pause') {
           isPlaying.value = false
-          playbackPosition.value = data.position
-          stopProgressInterval()
         } else if (data.action === 'seek') {
-          playbackPosition.value = data.position
+          // Keep current playing state, just update position
+          if (isPlaying.value) {
+            startProgressInterval()
+          }
+        }
+        break
+
+      case 'pong':
+        // Sync position from server on every pong (every 30s)
+        // Room is source of truth - sync all users including Spotify users
+        if (data.position !== undefined) {
+          const drift = Math.abs(playbackPosition.value - data.position)
+          // Only correct if drift is more than 500ms
+          if (drift > 500) {
+            console.log(`Pong sync: correcting drift of ${drift}ms, server position: ${data.position}ms`)
+            playbackPosition.value = data.position
+          }
+        }
+        // Also sync play/pause state from server
+        if (data.is_playing !== undefined && data.is_playing !== isPlaying.value) {
+          console.log(`Pong sync: correcting play state to ${data.is_playing}`)
+          isPlaying.value = data.is_playing
+          if (isPlaying.value) {
+            startProgressInterval()
+          } else {
+            stopProgressInterval()
+          }
         }
         break
 
@@ -205,11 +264,66 @@ export function useSession() {
           }
         }
         break
+
+      case 'album_change':
+        // Album was changed by someone - need to reload album data
+        if (session.value) {
+          session.value.album_id = data.album_id
+          session.value.album_name = data.album_name
+          session.value.cover_url = data.cover_url
+          session.value.current_track_id = data.track_id
+        }
+        currentTrackDuration.value = data.track_duration || 0
+        playbackPosition.value = 0
+        isPlaying.value = false
+        stopProgressInterval()
+
+        // Reload the full album data
+        loadAlbumData(data.album_id)
+
+        if (data.changed_by !== currentUser?.id) {
+          showToast(`${data.changed_by_name || 'Someone'} selected album "${data.album_name}"`)
+        }
+        break
+
+      case 'session_ended':
+        // Room was closed/deleted
+        showToast(data.message || 'This room has been closed', 'error')
+        // Clear session state - the WebSocket will close automatically
+        session.value = null
+        album.value = null
+        sessionUser.value = null
+        isPlaying.value = false
+        playbackPosition.value = 0
+        currentTrackDuration.value = 0
+        listeners.value = []
+        stopProgressInterval()
+        break
     }
 
     // Forward to component handler if provided
     if (onMessage) {
       onMessage(data)
+    }
+  }
+
+  async function loadAlbumData(albumId) {
+    if (!albumId) {
+      album.value = null
+      return
+    }
+
+    try {
+      const albumRes = await fetch('/api/albums')
+      if (albumRes.ok) {
+        const albums = await albumRes.json()
+        album.value = albums.find(a => a.id === albumId)
+        if (currentTrack.value) {
+          currentTrackDuration.value = currentTrack.value.duration_ms
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load album data:', e)
     }
   }
 
@@ -219,19 +333,17 @@ export function useSession() {
       if (!res.ok) return false
 
       session.value = await res.json()
+      sessionUser.value = currentUser // Store for auto-advance
       currentTrackDuration.value = session.value.current_track_duration || 0
       isPlaying.value = session.value.playback?.is_playing || false
       playbackPosition.value = session.value.playback?.position || 0
       listeners.value = session.value.participants?.filter(p => p.is_online) || []
 
-      // Load album
-      const albumRes = await fetch('/api/albums')
-      if (albumRes.ok) {
-        const albums = await albumRes.json()
-        album.value = albums.find(a => a.id === session.value.album_id)
-        if (currentTrack.value) {
-          currentTrackDuration.value = currentTrack.value.duration_ms
-        }
+      // Load album only if session has one
+      if (session.value.album_id) {
+        await loadAlbumData(session.value.album_id)
+      } else {
+        album.value = null
       }
 
       // Connect WebSocket
@@ -248,6 +360,33 @@ export function useSession() {
     }
   }
 
+  async function setAlbum(albumId, currentUser) {
+    if (!session.value?.code) return false
+
+    try {
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      if (currentUser?.id) {
+        headers['X-User-Id'] = currentUser.id.toString()
+      }
+      const res = await fetch(`/api/sessions/${session.value.code}/album`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ album_id: albumId })
+      })
+
+      if (res.ok) {
+        // Album data will be updated via WebSocket album_change message
+        return true
+      }
+      return false
+    } catch (e) {
+      console.error('Failed to set album:', e)
+      return false
+    }
+  }
+
   async function leaveSession() {
     stopProgressInterval()
     if (pingInterval) {
@@ -260,6 +399,7 @@ export function useSession() {
     }
     session.value = null
     album.value = null
+    sessionUser.value = null
     isPlaying.value = false
     playbackPosition.value = 0
     currentTrackDuration.value = 0
@@ -287,18 +427,43 @@ export function useSession() {
       isPlaying.value = false
       stopProgressInterval()
 
-      // Play on Spotify if connected
-      if (spotifyReady.value && track?.spotify_id) {
-        await spotifyPlay(`spotify:track:${track.spotify_id}`, 0)
-        isPlaying.value = true
-        startProgressInterval()
-      } else {
-        // Auto-play via session state only
-        await new Promise(resolve => setTimeout(resolve, 100))
-        await togglePlayback(currentUser)
-      }
+      // Auto-play from beginning
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await startPlaybackFromBeginning(currentUser, track)
     } catch (e) {
       console.error('Failed to select track:', e)
+    }
+  }
+
+  async function startPlaybackFromBeginning(currentUser, track) {
+    if (!session.value?.code) return
+
+    try {
+      const headers = {}
+      if (currentUser?.id) {
+        headers['X-User-Id'] = currentUser.id.toString()
+      }
+
+      // Send play action with position 0
+      await fetch(`/api/sessions/${session.value.code}/playback?action=seek&position=0`, {
+        method: 'POST',
+        headers
+      })
+      await fetch(`/api/sessions/${session.value.code}/playback?action=play`, {
+        method: 'POST',
+        headers
+      })
+
+      // Control Spotify if connected
+      if (spotifyReady.value && track?.spotify_id) {
+        await spotifyPlay(`spotify:track:${track.spotify_id}`, 0)
+      }
+
+      playbackPosition.value = 0
+      isPlaying.value = true
+      startProgressInterval()
+    } catch (e) {
+      console.error('Failed to start playback:', e)
     }
   }
 
@@ -376,6 +541,83 @@ export function useSession() {
     }
   }
 
+  async function syncWithServer() {
+    if (!session.value?.code) {
+      console.log('syncWithServer: no session code')
+      return false
+    }
+
+    console.log('syncWithServer: starting sync for session', session.value.code)
+
+    try {
+      // Stop interval first to prevent race conditions
+      stopProgressInterval()
+
+      const res = await fetch(`/api/sessions/${session.value.code}`)
+      if (!res.ok) {
+        showToast('Sync failed: server error', 'error')
+        return false
+      }
+
+      const data = await res.json()
+      console.log('syncWithServer: server data', data.playback)
+
+      // Update local state with server state
+      if (data.playback) {
+        const serverPos = data.playback.position || 0
+        const serverIsPlaying = data.playback.is_playing || false
+
+        console.log(`syncWithServer: server position=${serverPos}, isPlaying=${serverIsPlaying}`)
+
+        // Set position from server
+        playbackPosition.value = serverPos
+        isPlaying.value = serverIsPlaying
+      }
+
+      // Update track if different
+      if (data.current_track_id && data.current_track_id !== session.value.current_track_id) {
+        session.value.current_track_id = data.current_track_id
+        const track = album.value?.tracks?.find(t => t.id === data.current_track_id)
+        if (track) {
+          currentTrackDuration.value = track.duration_ms
+        }
+      }
+
+      // Sync Spotify player if connected
+      if (spotifyReady.value) {
+        const track = currentTrack.value
+        console.log('syncWithServer: Spotify ready, track=', track?.name, 'spotify_id=', track?.spotify_id)
+        if (track?.spotify_id) {
+          if (isPlaying.value) {
+            console.log('syncWithServer: playing on Spotify at position', playbackPosition.value)
+            await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
+          } else {
+            console.log('syncWithServer: pausing Spotify and seeking to', playbackPosition.value)
+            await spotifyPause()
+            // Only seek if we have a valid position
+            if (playbackPosition.value > 0) {
+              await spotifySeek(playbackPosition.value)
+            }
+          }
+        }
+      } else {
+        console.log('syncWithServer: Spotify not ready')
+      }
+
+      // Restart interval only if playing
+      if (isPlaying.value) {
+        startProgressInterval()
+      }
+
+      showToast(`Synced: ${formatDuration(playbackPosition.value)}`, 'success')
+      return true
+    } catch (e) {
+      console.error('Failed to sync with server:', e)
+      showToast('Sync failed', 'error')
+      return false
+    }
+  }
+
   return {
     // State
     session,
@@ -386,6 +628,7 @@ export function useSession() {
     listeners,
     toasts,
     isInSession,
+    hasAlbum,
     currentTrack,
     progressPercent,
 
@@ -393,6 +636,8 @@ export function useSession() {
     joinSession,
     leaveSession,
     selectTrack,
+    setAlbum,
+    loadAlbumData,
     togglePlayback,
     seekTo,
     skipPrevious,
@@ -401,6 +646,7 @@ export function useSession() {
     formatDuration,
     startProgressInterval,
     stopProgressInterval,
-    connectWebSocket
+    connectWebSocket,
+    syncWithServer
   }
 }
