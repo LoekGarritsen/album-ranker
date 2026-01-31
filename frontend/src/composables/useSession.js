@@ -364,16 +364,13 @@ export function useSession() {
     if (!session.value?.code) return false
 
     try {
-      const headers = {
-        'Content-Type': 'application/json'
-      }
+      const headers = {}
       if (currentUser?.id) {
         headers['X-User-Id'] = currentUser.id.toString()
       }
-      const res = await fetch(`/api/sessions/${session.value.code}/album`, {
+      const res = await fetch(`/api/sessions/${session.value.code}/album?album_id=${albumId}`, {
         method: 'POST',
-        headers,
-        body: JSON.stringify({ album_id: albumId })
+        headers
       })
 
       if (res.ok) {
