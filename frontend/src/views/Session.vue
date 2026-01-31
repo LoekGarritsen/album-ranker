@@ -319,23 +319,15 @@ watch(spotifyPosition, async (spotifyPos) => {
   }
 })
 
-// When Spotify pauses locally (not via room controls), sync it back to room state
-watch(spotifyPaused, async (paused, wasPaused) => {
-  if (!spotifyReady.value || isSyncing.value) return
+// Don't fight user when they pause/resume in Spotify app
+// Just log it - the pong sync (every 10s) or manual sync will correct drift
+watch(spotifyPaused, (paused, wasPaused) => {
+  if (!spotifyReady.value) return
 
-  // Spotify was playing and is now paused, but room is still playing
   if (paused && !wasPaused && isPlaying.value) {
-    console.log('Spotify paused locally but room is playing, resuming Spotify')
-    const track = currentTrack.value
-    if (track?.spotify_id) {
-      // Resume Spotify at room position
-      await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
-    }
-  }
-  // Spotify was paused and is now playing, but room is paused
-  else if (!paused && wasPaused && !isPlaying.value) {
-    console.log('Spotify resumed locally but room is paused, pausing Spotify')
-    await spotifyPause()
+    console.log('Spotify paused locally while room is playing - will resync on next pong or manual sync')
+  } else if (!paused && wasPaused && !isPlaying.value) {
+    console.log('Spotify resumed locally while room is paused - will resync on next pong or manual sync')
   }
 })
 
