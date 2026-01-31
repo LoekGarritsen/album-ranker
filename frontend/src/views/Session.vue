@@ -302,20 +302,7 @@ watch(spotifyPosition, async (spotifyPos) => {
   // Room position is source of truth - check if Spotify drifted too far
   const drift = Math.abs(playbackPosition.value - spotifyPos)
   if (drift > 2000) { // More than 2 seconds drift
-    console.log(`Spotify drift detected: ${drift}ms, syncing Spotify to room position ${playbackPosition.value}ms`)
     await spotifySeek(playbackPosition.value)
-  }
-})
-
-// Don't fight user when they pause/resume in Spotify app
-// Just log it - the pong sync (every 10s) or manual sync will correct drift
-watch(spotifyPaused, (paused, wasPaused) => {
-  if (!spotifyReady.value) return
-
-  if (paused && !wasPaused && isPlaying.value) {
-    console.log('Spotify paused locally while room is playing - will resync on next pong or manual sync')
-  } else if (!paused && wasPaused && !isPlaying.value) {
-    console.log('Spotify resumed locally while room is paused - will resync on next pong or manual sync')
   }
 })
 
@@ -329,14 +316,12 @@ watch(isPlaying, async (roomIsPlaying, wasPlaying) => {
   // Room started playing - sync Spotify to play
   if (roomIsPlaying && !wasPlaying) {
     if (spotifyPaused.value) {
-      console.log('Room started playing, starting Spotify at position', playbackPosition.value)
       await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
     }
   }
   // Room paused - pause Spotify
   else if (!roomIsPlaying && wasPlaying) {
     if (!spotifyPaused.value) {
-      console.log('Room paused, pausing Spotify')
       await spotifyPause()
     }
   }

@@ -207,13 +207,11 @@ export function useSession() {
           const drift = Math.abs(playbackPosition.value - data.position)
           // Only correct if drift is more than 500ms
           if (drift > 500) {
-            console.log(`Pong sync: correcting drift of ${drift}ms, server position: ${data.position}ms`)
             playbackPosition.value = data.position
           }
         }
         // Also sync play/pause state from server
         if (data.is_playing !== undefined && data.is_playing !== isPlaying.value) {
-          console.log(`Pong sync: correcting play state to ${data.is_playing}`)
           isPlaying.value = data.is_playing
           if (isPlaying.value) {
             startProgressInterval()
@@ -525,12 +523,7 @@ export function useSession() {
   }
 
   async function syncWithServer() {
-    if (!session.value?.code) {
-      console.log('syncWithServer: no session code')
-      return false
-    }
-
-    console.log('syncWithServer: starting sync for session', session.value.code)
+    if (!session.value?.code) return false
 
     try {
       // Stop interval first to prevent race conditions
@@ -543,14 +536,11 @@ export function useSession() {
       }
 
       const data = await res.json()
-      console.log('syncWithServer: server data', data.playback)
 
       // Update local state with server state
       if (data.playback) {
         const serverPos = data.playback.position || 0
         const serverIsPlaying = data.playback.is_playing || false
-
-        console.log(`syncWithServer: server position=${serverPos}, isPlaying=${serverIsPlaying}`)
 
         // Set position from server
         playbackPosition.value = serverPos
@@ -569,13 +559,10 @@ export function useSession() {
       // Sync Spotify player if connected
       if (spotifyReady.value) {
         const track = currentTrack.value
-        console.log('syncWithServer: Spotify ready, track=', track?.name, 'spotify_id=', track?.spotify_id)
         if (track?.spotify_id) {
           if (isPlaying.value) {
-            console.log('syncWithServer: playing on Spotify at position', playbackPosition.value)
             await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
           } else {
-            console.log('syncWithServer: pausing Spotify and seeking to', playbackPosition.value)
             await spotifyPause()
             // Only seek if we have a valid position
             if (playbackPosition.value > 0) {
@@ -583,8 +570,6 @@ export function useSession() {
             }
           }
         }
-      } else {
-        console.log('syncWithServer: Spotify not ready')
       }
 
       // Restart interval only if playing
