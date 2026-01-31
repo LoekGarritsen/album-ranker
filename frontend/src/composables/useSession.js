@@ -481,22 +481,8 @@ export function useSession() {
         method: 'POST',
         headers
       })
-
-      // Control Spotify if connected
-      if (spotifyReady.value) {
-        if (action === 'pause') {
-          await spotifyPause()
-          isPlaying.value = false
-          stopProgressInterval()
-        } else {
-          const track = currentTrack.value
-          if (track?.spotify_id) {
-            await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
-            isPlaying.value = true
-            startProgressInterval()
-          }
-        }
-      }
+      // State will be updated via WebSocket broadcast
+      // Spotify will be synced via the isPlaying watcher in Session.vue
     } catch (e) {
       console.error('Failed to toggle playback:', e)
     }

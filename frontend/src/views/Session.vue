@@ -184,20 +184,8 @@ async function handleSelectTrack(trackId) {
 }
 
 async function handleTogglePlayback() {
-  const wasPlaying = isPlaying.value
+  // Just toggle room state - the isPlaying watcher handles Spotify sync
   await togglePlayback(currentUser.value)
-
-  // Handle Spotify playback
-  if (spotifyReady.value) {
-    if (!wasPlaying) {
-      const track = currentTrack.value
-      if (track?.spotify_id) {
-        await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
-      }
-    } else {
-      await spotifyPause()
-    }
-  }
 }
 
 async function handleSeekTo(percent) {
