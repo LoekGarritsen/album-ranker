@@ -77,14 +77,17 @@ def init_db():
                 UNIQUE(track_id, user_id)
             );
 
-            -- Listening sessions for real-time sync
+            -- Listening sessions (rooms) for real-time sync
             CREATE TABLE IF NOT EXISTS listening_sessions (
                 id INTEGER PRIMARY KEY,
                 code TEXT UNIQUE NOT NULL,
-                album_id INTEGER REFERENCES albums(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                album_id INTEGER REFERENCES albums(id) ON DELETE SET NULL,
                 current_track_id INTEGER REFERENCES tracks(id),
                 created_by INTEGER REFERENCES users(id),
                 is_active INTEGER DEFAULT 1,
+                is_public INTEGER DEFAULT 1,
+                password TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -112,3 +115,28 @@ def init_db():
                 "INSERT INTO users (name, is_admin, pin) VALUES (?, 1, ?)",
                 ("Loek", "0406")
             )
+
+        # Migrations for existing databases
+        _run_migrations(conn)
+
+def _run_migrations(conn):
+    """Run database migrations for existing tables"""
+    # Check if listening_sessions needs the new columns
+    cursor = conn.execute("PRAGMA table_info(listening_sessions)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if 'name' not in columns:
+        # Add new columns for listening rooms feature
+        conn.execute("ALTER TABLE listening_sessions ADD COLUMN name TEXT DEFAULT 'Listening Room'")
+        conn.execute("ALTER TABLE listening_sessions ADD COLUMN is_public INTEGER DEFAULT 1")
+        conn.execute("ALTER TABLE listening_sessions ADD COLUMN password TEXT")
+
+        # Update existing sessions to have a name based on their album
+        conn.execute("""
+            UPDATE listening_sessions
+            SET name = COALESCE(
+                (SELECT albums.name FROM albums WHERE albums.id = listening_sessions.album_id),
+                'Listening Room'
+            )
+            WHERE name = 'Listening Room' OR name IS NULL
+        """)

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, provide, computed } from 'vue'
 import { RouterView, RouterLink } from 'vue-router'
-import { Music2, User, ChevronDown, Plus, Lock, LogOut } from 'lucide-vue-next'
+import { Music2, User, ChevronDown, Plus, Lock, LogOut, Radio } from 'lucide-vue-next'
 import MiniPlayer from './components/MiniPlayer.vue'
 import { useSession } from './composables/useSession'
 
@@ -36,7 +36,10 @@ async function loadUsers() {
     const user = users.value.find(u => u.id === parseInt(savedUserId))
     if (user) {
       currentUser.value = user
-      // Don't auto-verify admin, they need to enter PIN again
+      // Show PIN modal for admin users to re-verify
+      if (user.is_admin) {
+        showPinModal.value = true
+      }
     }
   }
 }
@@ -123,14 +126,20 @@ onMounted(loadUsers)
 
 <template>
   <div class="min-h-screen text-slate-100">
-    <!-- Navbar -->
-    <nav class="fixed top-0 left-0 right-0 z-50 glass border-b border-white/10">
+    <!-- Floating Navbar -->
+    <nav class="fixed top-4 left-4 right-4 z-50 glass shadow-lg shadow-black/20">
       <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <RouterLink to="/" class="flex items-center gap-2 text-xl font-heading font-semibold">
-          <Music2 class="w-6 h-6 text-accent-primary" />
-          <span class="hidden sm:inline">Album Ranker</span>
-          <span class="sm:hidden">Albums</span>
-        </RouterLink>
+        <div class="flex items-center gap-4">
+          <RouterLink to="/" class="flex items-center gap-2 text-xl font-heading font-semibold">
+            <Music2 class="w-6 h-6 text-accent-primary" />
+            <span class="hidden sm:inline">Album Ranker</span>
+            <span class="sm:hidden">Albums</span>
+          </RouterLink>
+          <RouterLink to="/rooms" class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+            <Radio class="w-4 h-4" />
+            <span class="hidden sm:inline">Rooms</span>
+          </RouterLink>
+        </div>
 
         <!-- User selector -->
         <div class="relative">
@@ -195,8 +204,8 @@ onMounted(loadUsers)
       @click="showUserMenu = false"
     />
 
-    <!-- Main content -->
-    <main class="pt-20 px-4" :class="isInSession ? 'pb-24' : 'pb-8'">
+    <!-- Main content (adjusted for floating navbar) -->
+    <main class="pt-24 px-4" :class="isInSession ? 'pb-24' : 'pb-8'">
       <div class="max-w-6xl mx-auto">
         <div v-if="!currentUser" class="text-center py-16">
           <User class="w-16 h-16 mx-auto mb-4 text-slate-600" />
@@ -237,7 +246,7 @@ onMounted(loadUsers)
             pattern="[0-9]*"
             maxlength="4"
             placeholder="Enter 4-digit PIN"
-            class="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-center text-2xl tracking-widest placeholder-slate-500 focus:outline-none focus:border-accent-primary transition-colors"
+            class="input-base text-center text-2xl tracking-widest"
             autofocus
           />
           <p v-if="pinError" class="text-red-400 text-sm mt-2 text-center">{{ pinError }}</p>
@@ -246,14 +255,14 @@ onMounted(loadUsers)
             <button
               type="button"
               @click="cancelPin"
-              class="flex-1 px-4 py-2 border border-white/20 rounded-xl hover:bg-white/5 transition-colors"
+              class="flex-1 btn-secondary"
             >
               Cancel
             </button>
             <button
               type="submit"
               :disabled="pinInput.length !== 4"
-              class="flex-1 px-4 py-2 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors disabled:opacity-50"
+              class="flex-1 btn-primary"
             >
               Unlock
             </button>
@@ -276,7 +285,7 @@ onMounted(loadUsers)
             v-model="newUserName"
             type="text"
             placeholder="Your name"
-            class="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-accent-primary transition-colors"
+            class="input-base"
             autofocus
           />
           <p v-if="newUserError" class="text-red-400 text-sm mt-2">{{ newUserError }}</p>
@@ -285,14 +294,14 @@ onMounted(loadUsers)
             <button
               type="button"
               @click="showNewUserModal = false; newUserName = ''; newUserError = ''"
-              class="flex-1 px-4 py-2 border border-white/20 rounded-xl hover:bg-white/5 transition-colors"
+              class="flex-1 btn-secondary"
             >
               Cancel
             </button>
             <button
               type="submit"
               :disabled="!newUserName.trim()"
-              class="flex-1 px-4 py-2 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors disabled:opacity-50"
+              class="flex-1 btn-primary"
             >
               Create
             </button>
@@ -307,8 +316,12 @@ onMounted(loadUsers)
         <div
           v-for="toast in toasts"
           :key="toast.id"
-          class="px-4 py-3 rounded-lg shadow-lg text-sm max-w-xs animate-slide-in"
-          :class="toast.type === 'success' ? 'bg-green-500/90 text-white' : 'bg-white/10 backdrop-blur-lg text-white border border-white/20'"
+          class="px-4 py-3 rounded-xl shadow-xl text-sm max-w-xs animate-slide-in backdrop-blur-xl border"
+          :class="toast.type === 'success'
+            ? 'bg-green-500/20 text-green-300 border-green-500/30'
+            : toast.type === 'error'
+              ? 'bg-red-500/20 text-red-300 border-red-500/30'
+              : 'bg-white/10 text-white border-white/20'"
         >
           {{ toast.message }}
         </div>

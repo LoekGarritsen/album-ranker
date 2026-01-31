@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, inject, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search as SearchIcon, Plus, Check, Loader2, BarChart3, X, ChevronDown, Star, Trash2, Music, Sparkles, Radio, TrendingUp, Calendar, Users, Layers } from 'lucide-vue-next'
+import { Search as SearchIcon, Plus, Check, Loader2, BarChart3, X, ChevronDown, Star, Trash2, Music, Sparkles, TrendingUp, Calendar, Users, Layers } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 
@@ -117,25 +117,6 @@ function openNewReleases() {
 
 function closeNewReleases() {
   showNewReleases.value = false
-}
-
-async function startListeningSession(albumId) {
-  try {
-    const res = await fetch('/api/sessions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Id': currentUser.value?.id?.toString() || ''
-      },
-      body: JSON.stringify({ album_id: albumId })
-    })
-    if (res.ok) {
-      const data = await res.json()
-      router.push(`/session/${data.code}`)
-    }
-  } catch (e) {
-    console.error('Failed to start session:', e)
-  }
 }
 
 async function removeAlbum(albumId) {
@@ -277,9 +258,19 @@ onMounted(loadAlbums)
       </router-link>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="text-center py-12 text-slate-400">
-      Loading albums...
+    <!-- Loading skeleton -->
+    <div v-if="loading" class="space-y-4">
+      <div v-for="i in 3" :key="i" class="glass p-4">
+        <div class="flex items-center gap-4">
+          <div class="skeleton w-16 h-16 rounded-lg"></div>
+          <div class="flex-1 space-y-2">
+            <div class="skeleton h-5 w-48 rounded"></div>
+            <div class="skeleton h-4 w-32 rounded"></div>
+            <div class="skeleton h-3 w-20 rounded"></div>
+          </div>
+          <div class="skeleton h-8 w-16 rounded-lg"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Empty state -->
@@ -296,7 +287,7 @@ onMounted(loadAlbums)
       <div
         v-for="album in albums"
         :key="album.id"
-        class="glass overflow-hidden"
+        class="glass overflow-hidden transition-all duration-200 hover:shadow-lg hover:shadow-accent-primary/5"
       >
         <!-- Album header -->
         <div
@@ -330,15 +321,6 @@ onMounted(loadAlbums)
           >
             <Star class="w-4 h-4" />
             <span class="hidden sm:inline">{{ getUserRanking(album.album_rankings)?.score || 'Rate' }}</span>
-          </button>
-
-          <!-- Start listening session - hidden on mobile -->
-          <button
-            @click.stop="startListeningSession(album.id)"
-            class="hidden sm:flex p-2 text-slate-500 hover:text-accent-primary hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] items-center justify-center"
-            title="Start listening session"
-          >
-            <Radio class="w-4 h-4" />
           </button>
 
           <!-- Delete button - hidden on mobile -->

@@ -129,14 +129,14 @@ const displayScore = computed(() => {
             v-model="comment"
             :placeholder="type === 'album' ? 'Thoughts on this album?' : 'Thoughts on this track?'"
             rows="2"
-            class="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-accent-primary transition-colors resize-none"
+            class="input-base resize-none"
           />
         </div>
 
         <!-- Submit -->
         <button
           @click="submit"
-          class="w-full py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
+          class="w-full btn-primary py-3"
         >
           {{ existingRanking ? 'Update Rating' : 'Submit Rating' }}
         </button>

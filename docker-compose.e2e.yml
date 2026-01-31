@@ -1,0 +1,51 @@
+# Docker Compose for E2E testing
+# Uses ephemeral data directory for test isolation
+#
+# Usage:
+#   docker-compose -f docker-compose.e2e.yml up --build -d
+#   cd e2e && npm test
+#   docker-compose -f docker-compose.e2e.yml down -v
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: album-ranker-e2e-backend
+    ports:
+      - "8400:8400"
+    environment:
+      # Use dummy Spotify credentials for E2E (Spotify features won't work)
+      - SPOTIFY_CLIENT_ID=dummy_client_id
+      - SPOTIFY_CLIENT_SECRET=dummy_client_secret
+      - SPOTIFY_REDIRECT_URI=http://localhost:8401/api/spotify/callback
+    volumes:
+      # Use tmpfs for ephemeral test data
+      - e2e-data:/app/data
+    networks:
+      - album-ranker-e2e
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8400/api/users')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: album-ranker-e2e-frontend
+    ports:
+      - "8401:8401"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - album-ranker-e2e
+
+networks:
+  album-ranker-e2e:
+    driver: bridge
+
+volumes:
+  e2e-data:

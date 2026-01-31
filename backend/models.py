@@ -112,20 +112,148 @@ class ComparisonItem(BaseModel):
     user2_score: Optional[float]
     difference: Optional[float]
 
-# Listening session models
+# Listening session (room) models
 class ListeningSession(BaseModel):
     id: int
     code: str
+    name: str
+    album_id: Optional[int] = None
+    album_name: Optional[str] = None
+    cover_url: Optional[str] = None
+    current_track_id: Optional[int] = None
+    current_track_name: Optional[str] = None
+    participant_count: int = 0
+    is_public: bool = True
+    has_password: bool = False
+    created_by_name: Optional[str] = None
+    is_active: bool = True
+
+class SessionCreate(BaseModel):
+    name: str
+    album_id: Optional[int] = None
+    is_public: bool = True
+    password: Optional[str] = None
+
+class SessionJoin(BaseModel):
+    password: Optional[str] = None
+
+class SessionSetAlbum(BaseModel):
+    album_id: int
+
+
+# === WebSocket Message Models ===
+# These models document the WebSocket protocol and can be used for validation
+
+from typing import Literal, Union
+from enum import Enum
+
+
+class WSMessageType(str, Enum):
+    """All WebSocket message types."""
+    # Client -> Server
+    PING = "ping"
+
+    # Server -> Client
+    PONG = "pong"
+    SYNC = "sync"
+    TRACK_CHANGE = "track_change"
+    ALBUM_CHANGE = "album_change"
+    PLAYBACK = "playback"
+    RATING = "rating"
+    USER_JOINED = "user_joined"
+    USER_LEFT = "user_left"
+    SESSION_ENDED = "session_ended"
+
+
+# --- Client -> Server Messages ---
+
+class WSClientPing(BaseModel):
+    """Client ping to keep connection alive and sync position."""
+    type: Literal["ping"] = "ping"
+
+
+# --- Server -> Client Messages ---
+
+class WSListener(BaseModel):
+    """Listener info in sync messages."""
+    user_id: Union[int, str]  # int for users, str for guests (guest_xxx)
+    user_name: str
+
+
+class WSServerPong(BaseModel):
+    """Server response to ping with current playback state."""
+    type: Literal["pong"] = "pong"
+    position: int  # Current position in ms
+    is_playing: bool
+
+
+class WSServerSync(BaseModel):
+    """Initial state sent to client on WebSocket connect."""
+    type: Literal["sync"] = "sync"
+    track_id: Optional[int]
+    is_playing: bool
+    position: int
+    listeners: list[WSListener]
+
+
+class WSServerTrackChange(BaseModel):
+    """Broadcast when track changes."""
+    type: Literal["track_change"] = "track_change"
+    track_id: int
+    duration: int
+    position: int = 0
+    is_playing: bool = False
+    changed_by: Optional[Union[int, str]] = None
+    changed_by_name: Optional[str] = None
+
+
+class WSServerAlbumChange(BaseModel):
+    """Broadcast when album changes."""
+    type: Literal["album_change"] = "album_change"
     album_id: int
     album_name: str
     cover_url: Optional[str]
-    current_track_id: Optional[int]
-    current_track_name: Optional[str]
-    participants: list[str]
-    is_active: bool
+    track_id: Optional[int]
+    track_name: Optional[str]
+    track_duration: Optional[int]
+    changed_by: Optional[Union[int, str]] = None
+    changed_by_name: Optional[str] = None
 
-class SessionCreate(BaseModel):
-    album_id: int
 
-class SessionJoin(BaseModel):
-    code: str
+class WSServerPlayback(BaseModel):
+    """Broadcast for playback control (play/pause/seek)."""
+    type: Literal["playback"] = "playback"
+    action: Literal["play", "pause", "seek"]
+    position: int
+
+
+class WSServerRating(BaseModel):
+    """Broadcast when a user submits a track rating."""
+    type: Literal["rating"] = "rating"
+    track_id: int
+    user_id: int
+    user_name: str
+    score: float
+    comment: Optional[str] = None
+
+
+class WSServerUserJoined(BaseModel):
+    """Broadcast when a user joins the session."""
+    type: Literal["user_joined"] = "user_joined"
+    user_id: Union[int, str]
+    user_name: str
+    active_count: int
+
+
+class WSServerUserLeft(BaseModel):
+    """Broadcast when a user leaves the session."""
+    type: Literal["user_left"] = "user_left"
+    user_id: Union[int, str]
+    user_name: str
+    active_count: int
+
+
+class WSServerSessionEnded(BaseModel):
+    """Broadcast when session is closed by admin."""
+    type: Literal["session_ended"] = "session_ended"
+    message: str

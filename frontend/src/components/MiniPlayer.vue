@@ -1,7 +1,7 @@
 <script setup>
-import { inject, computed } from 'vue'
+import { ref, inject, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Play, Pause, SkipBack, SkipForward, X, Radio } from 'lucide-vue-next'
+import { Play, Pause, SkipBack, SkipForward, X, Radio, RefreshCw } from 'lucide-vue-next'
 import { useSession } from '../composables/useSession'
 
 const router = useRouter()
@@ -16,12 +16,16 @@ const {
   progressPercent,
   playbackPosition,
   currentTrackDuration,
+  hasAlbum,
   togglePlayback,
   skipPrevious,
   skipNext,
   leaveSession,
-  formatDuration
+  formatDuration,
+  syncWithServer
 } = useSession()
+
+const isSyncing = ref(false)
 
 // Hide mini player when on the session page itself
 const isOnSessionPage = computed(() => {
@@ -50,17 +54,24 @@ function handleSkipNext() {
 function handleTogglePlayback() {
   togglePlayback(currentUser?.value)
 }
+
+async function handleSync() {
+  if (isSyncing.value) return
+  isSyncing.value = true
+  await syncWithServer()
+  isSyncing.value = false
+}
 </script>
 
 <template>
   <div
-    v-if="session && !isOnSessionPage"
+    v-if="session && hasAlbum"
     class="fixed bottom-0 left-0 right-0 z-40 bg-bg-secondary/95 backdrop-blur-xl border-t border-white/10 safe-area-bottom"
   >
     <!-- Progress bar at top -->
-    <div class="h-1 bg-white/10">
+    <div class="progress-bar h-1.5">
       <div
-        class="h-full bg-accent-primary transition-all duration-100"
+        class="progress-bar-fill"
         :style="{ width: progressPercent + '%' }"
       ></div>
     </div>
@@ -98,6 +109,14 @@ function handleTogglePlayback() {
 
         <!-- Controls -->
         <div class="flex items-center gap-1">
+          <button
+            @click="handleSync"
+            class="p-2 hover:bg-white/10 rounded-full transition-colors"
+            :class="{ 'animate-spin': isSyncing }"
+            title="Sync with server"
+          >
+            <RefreshCw class="w-4 h-4" />
+          </button>
           <button
             @click="handleSkipPrevious"
             class="p-2 hover:bg-white/10 rounded-full transition-colors"

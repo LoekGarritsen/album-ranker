@@ -4,8 +4,22 @@
 
 body {
   font-family: 'Work Sans', sans-serif;
-  background: linear-gradient(135deg, #0A0E1A 0%, #121829 50%, #0A0E1A 100%);
+  background: #0A0E1A;
   min-height: 100vh;
+  min-height: 100dvh;
+  color: #e2e8f0;
+}
+
+/* Fixed background gradient - separate element for iOS compatibility */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  background: linear-gradient(135deg, #0A0E1A 0%, #121829 50%, #0A0E1A 100%);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -18,7 +32,45 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .glass-hover {
-  @apply transition-all duration-300 hover:bg-white/10 hover:border-white/20;
+  @apply transition-all duration-200 hover:bg-white/10 hover:border-white/20 cursor-pointer;
+}
+
+/* Interactive card styling */
+.card-interactive {
+  @apply glass transition-all duration-200 cursor-pointer;
+  @apply hover:bg-white/10 hover:border-white/20 hover:shadow-lg hover:shadow-accent-primary/5;
+}
+
+/* Focus visible states for accessibility */
+.focus-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary;
+}
+
+/* Button base styles */
+.btn-primary {
+  @apply px-4 py-2 bg-accent-primary text-black font-medium rounded-xl;
+  @apply hover:bg-accent-primary/90 transition-colors;
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-secondary {
+  @apply px-4 py-2 border border-white/20 rounded-xl;
+  @apply hover:bg-white/5 transition-colors;
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary;
+}
+
+.btn-ghost {
+  @apply p-2 hover:bg-white/10 rounded-lg transition-colors;
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50;
+}
+
+/* Input base styles */
+.input-base {
+  @apply w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl;
+  @apply text-white placeholder-slate-500;
+  @apply focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/50;
+  @apply transition-colors;
 }
 
 /* Rating slider gradient */
@@ -117,13 +169,88 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .animate-slide-in {
-  animation: slide-in 0.3s ease-out;
+  animation: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .toast-enter-active {
-  animation: slide-in 0.3s ease-out;
+  animation: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .toast-leave-active {
-  animation: slide-in 0.3s ease-in reverse;
+  animation: slide-in 0.3s cubic-bezier(0.7, 0, 0.84, 0) reverse;
 }
+
+/* Skeleton loading animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  @apply bg-white/5 rounded-lg;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .skeleton {
+    animation: none;
+    background: rgba(255, 255, 255, 0.05);
+  }
+}
+
+/* Smooth page transitions */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+}
+
+/* Modal backdrop */
+.modal-backdrop {
+  @apply fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70;
+  @apply backdrop-blur-sm;
+}
+
+/* Progress bar styles */
+.progress-bar {
+  @apply h-1.5 bg-white/10 rounded-full overflow-hidden cursor-pointer;
+}
+
+.progress-bar-fill {
+  @apply h-full bg-accent-primary rounded-full transition-all duration-100;
+}
+
+/* Playback animation bars */
+@keyframes playback-bar {
+  0%, 100% { height: 30%; }
+  50% { height: 100%; }
+}
+
+.playback-bars span:nth-child(1) { animation: playback-bar 0.8s ease-in-out infinite; }
+.playback-bars span:nth-child(2) { animation: playback-bar 0.8s ease-in-out 0.2s infinite; }
+.playback-bars span:nth-child(3) { animation: playback-bar 0.8s ease-in-out 0.4s infinite; }
