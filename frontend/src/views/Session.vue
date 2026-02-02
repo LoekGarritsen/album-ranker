@@ -29,8 +29,6 @@ const {
   setAlbum,
   togglePlayback,
   seekTo,
-  skipPrevious,
-  skipNext,
   showToast,
   formatDuration,
   startProgressInterval,
@@ -66,6 +64,7 @@ const copied = ref(false)
 // Sync state
 const isSyncing = ref(false)
 const isAutoAdvancing = ref(false)
+const isSelectingTrack = ref(false) // Prevents watcher interference during track selection
 
 async function handleSyncAudio() {
   if (isSyncing.value) return
@@ -179,8 +178,16 @@ async function handleSelectAlbum(selectedAlbum) {
 }
 
 async function handleSelectTrack(trackId) {
-  // selectTrack handles both backend sync and Spotify playback
-  await selectTrack(trackId, currentUser.value)
+  // Prevent watcher from interfering - selectTrack handles Spotify directly
+  isSelectingTrack.value = true
+  try {
+    await selectTrack(trackId, currentUser.value)
+  } finally {
+    // Small delay to let any WebSocket messages settle before re-enabling watcher
+    setTimeout(() => {
+      isSelectingTrack.value = false
+    }, 500)
+  }
 }
 
 async function handleTogglePlayback() {
@@ -203,12 +210,18 @@ function handleProgressClick(event) {
   handleSeekTo(Math.max(0, Math.min(100, percent)))
 }
 
-function handleSkipPrevious() {
-  skipPrevious(currentUser.value)
+async function handleSkipPrevious() {
+  const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
+  if (trackIdx > 0) {
+    await handleSelectTrack(album.value.tracks[trackIdx - 1].id)
+  }
 }
 
-function handleSkipNext() {
-  skipNext(currentUser.value)
+async function handleSkipNext() {
+  const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
+  if (trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
+    await handleSelectTrack(album.value.tracks[trackIdx + 1].id)
+  }
 }
 
 async function copyCode() {
@@ -269,7 +282,7 @@ function getUserRanking(rankings) {
 
 // Auto-advance to next track
 async function autoAdvanceTrack() {
-  if (isAutoAdvancing.value) return
+  if (isAutoAdvancing.value || isSelectingTrack.value) return
   isAutoAdvancing.value = true
 
   try {
@@ -277,27 +290,30 @@ async function autoAdvanceTrack() {
     if (trackIdx !== undefined && trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
       const nextTrack = album.value.tracks[trackIdx + 1]
       await handleSelectTrack(nextTrack.id)
-      isAutoAdvancing.value = false
     } else {
       // Last track, pause
       await handleTogglePlayback()
-      isAutoAdvancing.value = false
     }
   } catch (e) {
     console.error('Auto-advance failed:', e)
+  } finally {
     isAutoAdvancing.value = false
   }
 }
 
 // When Spotify position drifts from room position, sync Spotify to room (room is source of truth)
 watch(spotifyPosition, async (spotifyPos) => {
-  if (!spotifyReady.value || spotifyPaused.value || isSyncing.value) return
+  if (!spotifyReady.value || isSyncing.value || isSelectingTrack.value) return
 
-  // Check for track end (auto-advance)
-  if (!isAutoAdvancing.value && currentTrackDuration.value > 0 && spotifyPos >= currentTrackDuration.value - 1500) {
+  // Check for track end (auto-advance) - use room's isPlaying state, not Spotify's paused state
+  // This handles the case where Spotify finishes slightly before we detect it
+  if (!isAutoAdvancing.value && isPlaying.value && currentTrackDuration.value > 0 && spotifyPos >= currentTrackDuration.value - 1500) {
     autoAdvanceTrack()
     return
   }
+
+  // Only do drift correction if not paused
+  if (spotifyPaused.value) return
 
   // Room position is source of truth - check if Spotify drifted too far
   const drift = Math.abs(playbackPosition.value - spotifyPos)
@@ -308,7 +324,8 @@ watch(spotifyPosition, async (spotifyPos) => {
 
 // Sync Spotify player when room playback state changes (e.g., another user plays/pauses)
 watch(isPlaying, async (roomIsPlaying, wasPlaying) => {
-  if (!spotifyReady.value || isSyncing.value) return
+  // Skip if we're actively selecting a track - that handles Spotify directly
+  if (!spotifyReady.value || isSyncing.value || isSelectingTrack.value) return
 
   const track = currentTrack.value
   if (!track?.spotify_id) return
