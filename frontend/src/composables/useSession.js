@@ -74,9 +74,8 @@ export function useSession() {
   }
 
   function autoAdvanceToNext() {
-    // Only auto-advance if Spotify is NOT connected (Spotify users use Session.vue's watcher)
-    if (spotifyReady.value) return
-
+    // Advance to next track when current track ends
+    // This is the fallback for all users - Spotify users may get early advance from Session.vue watcher
     const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
     if (trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
       // There's a next track, advance to it
@@ -84,6 +83,7 @@ export function useSession() {
     } else {
       // Last track ended, stop playback
       isPlaying.value = false
+      stopProgressInterval()
     }
   }
 

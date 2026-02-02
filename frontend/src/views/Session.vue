@@ -327,20 +327,6 @@ watch(isPlaying, async (roomIsPlaying, wasPlaying) => {
   }
 })
 
-// When Spotify is paused/resumed locally, control the progress interval
-// This prevents the timer from running when Spotify is paused outside the app
-watch(spotifyPaused, (paused) => {
-  if (!spotifyReady.value) return
-
-  if (paused) {
-    // Spotify paused locally - stop the progress timer
-    stopProgressInterval()
-  } else if (isPlaying.value) {
-    // Spotify resumed and room is playing - restart the timer
-    startProgressInterval()
-  }
-})
-
 // Redirect to rooms if session is ended (deleted by admin)
 watch(session, (newSession) => {
   if (newSession === null && !loading.value) {
