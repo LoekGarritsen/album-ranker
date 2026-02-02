@@ -44,6 +44,7 @@ const {
   isPaused: spotifyPaused,
   position: spotifyPosition,
   error: spotifyError,
+  trackEnded: spotifyTrackEnded,
   setUserId: setSpotifyUserId,
   checkConnection: checkSpotifyConnection,
   connect: connectSpotify,
@@ -301,12 +302,21 @@ async function autoAdvanceTrack() {
   }
 }
 
+// Watch for Spotify track end event (more reliable than position-based detection)
+// This fires directly from the SDK when a track naturally finishes
+watch(spotifyTrackEnded, async (ended) => {
+  if (ended && !isAutoAdvancing.value && !isSelectingTrack.value && isPlaying.value) {
+    // Reset immediately to prevent double-firing
+    spotifyTrackEnded.value = false
+    autoAdvanceTrack()
+  }
+})
+
 // When Spotify position drifts from room position, sync Spotify to room (room is source of truth)
 watch(spotifyPosition, async (spotifyPos) => {
   if (!spotifyReady.value || isSyncing.value || isSelectingTrack.value) return
 
-  // Check for track end (auto-advance) - use room's isPlaying state, not Spotify's paused state
-  // This handles the case where Spotify finishes slightly before we detect it
+  // Backup check for track end via position (in case trackEnded event didn't fire)
   if (!isAutoAdvancing.value && isPlaying.value && currentTrackDuration.value > 0 && spotifyPos >= currentTrackDuration.value - 1500) {
     autoAdvanceTrack()
     return

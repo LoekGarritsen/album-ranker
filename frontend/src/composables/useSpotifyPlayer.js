@@ -12,8 +12,10 @@ const duration = ref(0)
 const volume = ref(50)
 const error = ref(null)
 const currentUserId = ref(null)
+const trackEnded = ref(false) // Fires when a track naturally finishes
 
 let sdkLoaded = false
+let previousState = null // Track previous state for end detection
 let sdkLoadPromise = null
 let positionInterval = null
 
@@ -162,6 +164,39 @@ export function useSpotifyPlayer() {
         isPaused.value = state.paused
         position.value = state.position
         duration.value = state.duration
+
+        // Detect natural track end using multiple signals
+        // See: https://github.com/spotify/web-playback-sdk/issues/35
+        // See: https://github.com/spotify/web-playback-sdk/issues/85
+        // When a track ends naturally:
+        // - First event: paused=true, position near duration
+        // - Second event: paused=true, position=0
+        // Current track may also appear in previous_tracks
+        const currentTrackId = state.track_window.current_track?.id
+        const inPreviousTracks = state.track_window.previous_tracks?.some(
+          t => t.id === currentTrackId
+        )
+        const nearEnd = state.duration > 0 && state.position >= state.duration - 2000
+
+        if (previousState && !previousState.paused && state.paused) {
+          // Transition from playing to paused
+          // Track ended if position is near end OR track moved to previous_tracks
+          if (nearEnd || inPreviousTracks) {
+            trackEnded.value = true
+          }
+        }
+
+        // Reset when playback resumes
+        if (!state.paused) {
+          trackEnded.value = false
+        }
+
+        // Store state for next comparison
+        previousState = {
+          paused: state.paused,
+          position: state.position,
+          track_id: currentTrackId
+        }
       })
 
       player.value.addListener('initialization_error', ({ message }) => {
@@ -343,6 +378,7 @@ export function useSpotifyPlayer() {
     duration,
     volume,
     error,
+    trackEnded,
 
     // Methods
     setUserId,
