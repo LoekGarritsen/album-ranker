@@ -113,7 +113,7 @@ def create_session(data: SessionCreate, x_user_id: Optional[int] = Header(None))
         """, (code, data.name, data.album_id, first_track["id"] if first_track else None, x_user_id, 1 if data.is_public else 0, data.password))
 
         conn.execute("""
-            INSERT INTO session_participants (session_id, user_id)
+            INSERT OR IGNORE INTO session_participants (session_id, user_id)
             VALUES ((SELECT id FROM listening_sessions WHERE code = ?), ?)
         """, (code, x_user_id))
 
