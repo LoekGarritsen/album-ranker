@@ -212,5 +212,10 @@ def remove_album(album_id: int, x_user_id: Optional[int] = Header(None)):
         raise HTTPException(403, "Admin access required")
 
     with get_connection() as conn:
+        # Clear track references in sessions before deleting (tracks cascade from album)
+        conn.execute("""
+            UPDATE listening_sessions SET current_track_id = NULL
+            WHERE current_track_id IN (SELECT id FROM tracks WHERE album_id = ?)
+        """, (album_id,))
         conn.execute("DELETE FROM albums WHERE id = ?", (album_id,))
         return {"ok": True}

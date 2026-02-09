@@ -84,7 +84,7 @@ def init_db():
                 code TEXT UNIQUE NOT NULL,
                 name TEXT NOT NULL,
                 album_id INTEGER REFERENCES albums(id) ON DELETE SET NULL,
-                current_track_id INTEGER REFERENCES tracks(id),
+                current_track_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL,
                 created_by INTEGER REFERENCES users(id),
                 is_active INTEGER DEFAULT 1,
                 is_public INTEGER DEFAULT 1,
