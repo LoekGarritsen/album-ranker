@@ -1,4 +1,4 @@
-const CACHE_NAME = 'album-ranker-v2';
+const CACHE_NAME = 'album-ranker-v3';
 const STATIC_ASSETS = [
   '/favicon.svg',
   '/manifest.json'
@@ -27,9 +27,10 @@ self.addEventListener('fetch', event => {
   const { request } = event;
 
   // Network-first for navigation requests (HTML pages)
+  // Use cache: 'no-store' to bypass HTTP cache and always get fresh HTML
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-store' })
         .catch(() => caches.match('/'))
     );
     return;
