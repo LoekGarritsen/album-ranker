@@ -120,6 +120,7 @@ class SpotifyClient:
                     "spotify_id": item["id"],
                     "name": item["name"],
                     "artist": artists,
+                    "disc_number": item.get("disc_number", 1),
                     "track_number": item.get("track_number", 0),
                     "duration_ms": item.get("duration_ms", 0)
                 })

@@ -103,7 +103,7 @@ def create_session(data: SessionCreate, x_user_id: Optional[int] = Header(None))
                 raise HTTPException(404, "Album not found")
 
             first_track = conn.execute(
-                "SELECT id FROM tracks WHERE album_id = ? ORDER BY track_number LIMIT 1",
+                "SELECT id FROM tracks WHERE album_id = ? ORDER BY disc_number, track_number LIMIT 1",
                 (data.album_id,)
             ).fetchone()
 
@@ -269,7 +269,7 @@ async def set_session_album(code: str, album_id: int = Query(...), x_user_id: Op
             raise HTTPException(404, "Album not found")
 
         first_track = conn.execute(
-            "SELECT id, name, duration_ms FROM tracks WHERE album_id = ? ORDER BY track_number LIMIT 1",
+            "SELECT id, name, duration_ms FROM tracks WHERE album_id = ? ORDER BY disc_number, track_number LIMIT 1",
             (album_id,)
         ).fetchone()
 

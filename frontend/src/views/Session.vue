@@ -98,6 +98,26 @@ const filteredAlbums = computed(() => {
 
 const sessionCode = computed(() => route.params.code)
 
+const albumIsMultiDisc = computed(() => {
+  if (!album.value?.tracks?.length) return false
+  return album.value.tracks.some(t => (t.disc_number || 1) > 1)
+})
+
+const groupedTracks = computed(() => {
+  if (!album.value?.tracks) return []
+  const groups = []
+  let currentDisc = null
+  for (const track of album.value.tracks) {
+    const disc = track.disc_number || 1
+    if (disc !== currentDisc) {
+      groups.push({ type: 'disc', disc_number: disc })
+      currentDisc = disc
+    }
+    groups.push({ type: 'track', track })
+  }
+  return groups
+})
+
 async function loadSession() {
   if (!sessionCode.value) return
 
@@ -547,63 +567,115 @@ onUnmounted(() => {
 
       <!-- Track List (only when album is selected) -->
       <div v-if="hasAlbum && album" class="glass overflow-hidden">
-        <div
-          v-for="track in album.tracks"
-          :key="track.id"
-          @click="handleSelectTrack(track.id)"
-          class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-all duration-150 border-b border-white/5 last:border-0"
-          :class="session.current_track_id === track.id
-            ? 'bg-accent-primary/10 border-l-2 border-l-accent-primary'
-            : 'hover:bg-white/5 border-l-2 border-l-transparent'"
-        >
-          <div class="w-6 sm:w-8 text-center flex-shrink-0">
-            <div v-if="session.current_track_id === track.id && isPlaying" class="flex items-center justify-center gap-0.5">
-              <span class="w-1 h-3 bg-accent-primary rounded-full animate-pulse"></span>
-              <span class="w-1 h-4 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.2s"></span>
-              <span class="w-1 h-2 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.4s"></span>
+        <template v-if="albumIsMultiDisc">
+          <template v-for="item in groupedTracks" :key="item.type === 'disc' ? `disc-${item.disc_number}` : item.track.id">
+            <div v-if="item.type === 'disc'" class="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5">
+              <Disc3 class="w-3.5 h-3.5 text-slate-400" />
+              <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Disc {{ item.disc_number }}</span>
             </div>
-            <Play
-              v-else-if="session.current_track_id === track.id"
-              class="w-4 h-4 text-accent-primary mx-auto"
-            />
-            <span v-else class="text-xs sm:text-sm text-slate-500">{{ track.track_number }}</span>
-          </div>
-
-          <div class="flex-1 min-w-0">
-            <p class="truncate text-sm sm:text-base" :class="session.current_track_id === track.id ? 'text-accent-primary font-medium' : ''">
-              {{ track.name }}
-            </p>
-            <p class="text-xs text-slate-500">{{ formatDuration(track.duration_ms) }}</p>
-          </div>
-
-          <!-- Scores - hidden on small screens -->
-          <div class="hidden sm:flex items-center gap-3">
-            <div v-for="ranking in track.rankings" :key="ranking.user_id" class="text-center">
-              <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
-              <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
-                {{ ranking.score?.toFixed(1) || '-' }}
+            <div
+              v-else
+              @click="handleSelectTrack(item.track.id)"
+              class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-all duration-150 border-b border-white/5 last:border-0"
+              :class="session.current_track_id === item.track.id
+                ? 'bg-accent-primary/10 border-l-2 border-l-accent-primary'
+                : 'hover:bg-white/5 border-l-2 border-l-transparent'"
+            >
+              <div class="w-6 sm:w-8 text-center flex-shrink-0">
+                <div v-if="session.current_track_id === item.track.id && isPlaying" class="flex items-center justify-center gap-0.5">
+                  <span class="w-1 h-3 bg-accent-primary rounded-full animate-pulse"></span>
+                  <span class="w-1 h-4 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.2s"></span>
+                  <span class="w-1 h-2 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.4s"></span>
+                </div>
+                <Play
+                  v-else-if="session.current_track_id === item.track.id"
+                  class="w-4 h-4 text-accent-primary mx-auto"
+                />
+                <span v-else class="text-xs sm:text-sm text-slate-500">{{ item.track.track_number }}</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="truncate text-sm sm:text-base" :class="session.current_track_id === item.track.id ? 'text-accent-primary font-medium' : ''">
+                  {{ item.track.name }}
+                </p>
+                <p class="text-xs text-slate-500">{{ formatDuration(item.track.duration_ms) }}</p>
+              </div>
+              <div class="hidden sm:flex items-center gap-3">
+                <div v-for="ranking in item.track.rankings" :key="ranking.user_id" class="text-center">
+                  <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
+                  <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
+                    {{ ranking.score?.toFixed(1) || '-' }}
+                  </div>
+                </div>
+              </div>
+              <button
+                @click.stop="openTrackDetail(item.track)"
+                class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
+                title="Track info"
+              >
+                <Info class="w-4 h-4 text-slate-400" />
+              </button>
+              <button
+                @click.stop="openTrackRating(item.track)"
+                class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
+              >
+                <Star class="w-3 h-3" />
+                <span class="hidden sm:inline">{{ getUserRanking(item.track.rankings)?.score?.toFixed(1) || 'Rate' }}</span>
+              </button>
+            </div>
+          </template>
+        </template>
+        <template v-else>
+          <div
+            v-for="track in album.tracks"
+            :key="track.id"
+            @click="handleSelectTrack(track.id)"
+            class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-all duration-150 border-b border-white/5 last:border-0"
+            :class="session.current_track_id === track.id
+              ? 'bg-accent-primary/10 border-l-2 border-l-accent-primary'
+              : 'hover:bg-white/5 border-l-2 border-l-transparent'"
+          >
+            <div class="w-6 sm:w-8 text-center flex-shrink-0">
+              <div v-if="session.current_track_id === track.id && isPlaying" class="flex items-center justify-center gap-0.5">
+                <span class="w-1 h-3 bg-accent-primary rounded-full animate-pulse"></span>
+                <span class="w-1 h-4 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.2s"></span>
+                <span class="w-1 h-2 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.4s"></span>
+              </div>
+              <Play
+                v-else-if="session.current_track_id === track.id"
+                class="w-4 h-4 text-accent-primary mx-auto"
+              />
+              <span v-else class="text-xs sm:text-sm text-slate-500">{{ track.track_number }}</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="truncate text-sm sm:text-base" :class="session.current_track_id === track.id ? 'text-accent-primary font-medium' : ''">
+                {{ track.name }}
+              </p>
+              <p class="text-xs text-slate-500">{{ formatDuration(track.duration_ms) }}</p>
+            </div>
+            <div class="hidden sm:flex items-center gap-3">
+              <div v-for="ranking in track.rankings" :key="ranking.user_id" class="text-center">
+                <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
+                <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
+                  {{ ranking.score?.toFixed(1) || '-' }}
+                </div>
               </div>
             </div>
+            <button
+              @click.stop="openTrackDetail(track)"
+              class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
+              title="Track info"
+            >
+              <Info class="w-4 h-4 text-slate-400" />
+            </button>
+            <button
+              @click.stop="openTrackRating(track)"
+              class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
+            >
+              <Star class="w-3 h-3" />
+              <span class="hidden sm:inline">{{ getUserRanking(track.rankings)?.score?.toFixed(1) || 'Rate' }}</span>
+            </button>
           </div>
-
-          <!-- Info button -->
-          <button
-            @click.stop="openTrackDetail(track)"
-            class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
-            title="Track info"
-          >
-            <Info class="w-4 h-4 text-slate-400" />
-          </button>
-
-          <!-- Rate button -->
-          <button
-            @click.stop="openTrackRating(track)"
-            class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
-          >
-            <Star class="w-3 h-3" />
-            <span class="hidden sm:inline">{{ getUserRanking(track.rankings)?.score?.toFixed(1) || 'Rate' }}</span>
-          </button>
-        </div>
+        </template>
       </div>
     </div>
 

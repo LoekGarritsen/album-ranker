@@ -41,6 +41,7 @@ class TrackWithRankings(BaseModel):
     spotify_id: str
     name: str
     artist: str
+    disc_number: int = 1
     track_number: int
     duration_ms: int
     rankings: list[UserRanking] = []

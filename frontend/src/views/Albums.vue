@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, inject, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search as SearchIcon, Plus, Check, Loader2, BarChart3, X, ChevronDown, Star, Trash2, Music, Sparkles, TrendingUp, Calendar, Users, Layers } from 'lucide-vue-next'
+import { Search as SearchIcon, Plus, Check, Loader2, BarChart3, X, ChevronDown, Star, Trash2, Music, Sparkles, TrendingUp, Calendar, Users, Layers, Disc3 } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 
@@ -205,6 +205,25 @@ function formatDuration(ms) {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
+function isMultiDisc(album) {
+  if (!album.tracks?.length) return false
+  return album.tracks.some(t => (t.disc_number || 1) > 1)
+}
+
+function groupTracksByDisc(tracks) {
+  const groups = []
+  let currentDisc = null
+  for (const track of tracks) {
+    const disc = track.disc_number || 1
+    if (disc !== currentDisc) {
+      groups.push({ type: 'disc', disc_number: disc })
+      currentDisc = disc
+    }
+    groups.push({ type: 'track', track })
+  }
+  return groups
+}
+
 onMounted(loadAlbums)
 </script>
 
@@ -340,54 +359,89 @@ onMounted(loadAlbums)
 
         <!-- Tracks (expanded) -->
         <div v-if="expandedAlbumId === album.id" class="border-t border-white/10">
-          <div
-            v-for="track in album.tracks"
-            :key="track.id"
-            class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
-          >
-            <div class="w-6 sm:w-8 text-center text-xs sm:text-sm text-slate-500 flex-shrink-0">
-              {{ track.track_number }}
-            </div>
-
-            <!-- Clickable track name -->
-            <div
-              class="flex-1 min-w-0 cursor-pointer hover:text-accent-primary transition-colors"
-              @click="openTrackDetail(track, album)"
-            >
-              <p class="truncate text-sm sm:text-base">{{ track.name }}</p>
-              <p class="text-xs text-slate-500">{{ formatDuration(track.duration_ms) }}</p>
-            </div>
-
-            <!-- Track scores - hidden on small screens -->
-            <div class="hidden sm:flex items-center gap-3">
-              <div v-for="ranking in track.rankings" :key="ranking.user_id" class="text-center">
-                <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
+          <template v-if="isMultiDisc(album)">
+            <template v-for="item in groupTracksByDisc(album.tracks)" :key="item.type === 'disc' ? `disc-${item.disc_number}` : item.track.id">
+              <div v-if="item.type === 'disc'" class="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5">
+                <Disc3 class="w-3.5 h-3.5 text-slate-400" />
+                <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Disc {{ item.disc_number }}</span>
+              </div>
+              <div
+                v-else
+                class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+              >
+                <div class="w-6 sm:w-8 text-center text-xs sm:text-sm text-slate-500 flex-shrink-0">
+                  {{ item.track.track_number }}
+                </div>
                 <div
-                  class="font-heading font-bold"
-                  :class="getScoreColor(ranking.score)"
+                  class="flex-1 min-w-0 cursor-pointer hover:text-accent-primary transition-colors"
+                  @click="openTrackDetail(item.track, album)"
                 >
-                  {{ ranking.score || '-' }}
+                  <p class="truncate text-sm sm:text-base">{{ item.track.name }}</p>
+                  <p class="text-xs text-slate-500">{{ formatDuration(item.track.duration_ms) }}</p>
+                </div>
+                <div class="hidden sm:flex items-center gap-3">
+                  <div v-for="ranking in item.track.rankings" :key="ranking.user_id" class="text-center">
+                    <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
+                    <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
+                      {{ ranking.score || '-' }}
+                    </div>
+                  </div>
+                </div>
+                <div v-if="item.track.average_score" class="text-center min-w-[36px] sm:min-w-[40px]">
+                  <div class="text-xs text-slate-500 hidden sm:block">Avg</div>
+                  <div class="font-heading font-bold text-sm sm:text-base" :class="getScoreColor(item.track.average_score)">
+                    {{ item.track.average_score }}
+                  </div>
+                </div>
+                <button
+                  @click.stop="openTrackRating(item.track, album)"
+                  class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
+                >
+                  <Star class="w-3 h-3" />
+                  <span class="hidden sm:inline">{{ getUserRanking(item.track.rankings)?.score || 'Rate' }}</span>
+                </button>
+              </div>
+            </template>
+          </template>
+          <template v-else>
+            <div
+              v-for="track in album.tracks"
+              :key="track.id"
+              class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+            >
+              <div class="w-6 sm:w-8 text-center text-xs sm:text-sm text-slate-500 flex-shrink-0">
+                {{ track.track_number }}
+              </div>
+              <div
+                class="flex-1 min-w-0 cursor-pointer hover:text-accent-primary transition-colors"
+                @click="openTrackDetail(track, album)"
+              >
+                <p class="truncate text-sm sm:text-base">{{ track.name }}</p>
+                <p class="text-xs text-slate-500">{{ formatDuration(track.duration_ms) }}</p>
+              </div>
+              <div class="hidden sm:flex items-center gap-3">
+                <div v-for="ranking in track.rankings" :key="ranking.user_id" class="text-center">
+                  <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
+                  <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
+                    {{ ranking.score || '-' }}
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <!-- Average - always visible -->
-            <div v-if="track.average_score" class="text-center min-w-[36px] sm:min-w-[40px]">
-              <div class="text-xs text-slate-500 hidden sm:block">Avg</div>
-              <div class="font-heading font-bold text-sm sm:text-base" :class="getScoreColor(track.average_score)">
-                {{ track.average_score }}
+              <div v-if="track.average_score" class="text-center min-w-[36px] sm:min-w-[40px]">
+                <div class="text-xs text-slate-500 hidden sm:block">Avg</div>
+                <div class="font-heading font-bold text-sm sm:text-base" :class="getScoreColor(track.average_score)">
+                  {{ track.average_score }}
+                </div>
               </div>
+              <button
+                @click.stop="openTrackRating(track, album)"
+                class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
+              >
+                <Star class="w-3 h-3" />
+                <span class="hidden sm:inline">{{ getUserRanking(track.rankings)?.score || 'Rate' }}</span>
+              </button>
             </div>
-
-            <!-- Rate track button -->
-            <button
-              @click.stop="openTrackRating(track, album)"
-              class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
-            >
-              <Star class="w-3 h-3" />
-              <span class="hidden sm:inline">{{ getUserRanking(track.rankings)?.score || 'Rate' }}</span>
-            </button>
-          </div>
+          </template>
         </div>
       </div>
     </div>

@@ -50,6 +50,7 @@ def init_db():
                 spotify_id TEXT UNIQUE NOT NULL,
                 name TEXT NOT NULL,
                 artist TEXT NOT NULL,
+                disc_number INTEGER DEFAULT 1,
                 track_number INTEGER,
                 duration_ms INTEGER,
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -140,3 +141,10 @@ def _run_migrations(conn):
             )
             WHERE name = 'Listening Room' OR name IS NULL
         """)
+
+    # Add disc_number to tracks table
+    cursor = conn.execute("PRAGMA table_info(tracks)")
+    track_columns = {row[1] for row in cursor.fetchall()}
+
+    if 'disc_number' not in track_columns:
+        conn.execute("ALTER TABLE tracks ADD COLUMN disc_number INTEGER DEFAULT 1")

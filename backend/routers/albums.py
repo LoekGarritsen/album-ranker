@@ -45,7 +45,7 @@ def list_albums():
             FROM tracks t
             LEFT JOIN track_rankings tr ON t.id = tr.track_id
             LEFT JOIN users u ON tr.user_id = u.id
-            ORDER BY t.track_number
+            ORDER BY t.disc_number, t.track_number
         """).fetchall()
 
         # Group tracks by album
@@ -63,6 +63,7 @@ def list_albums():
                     "spotify_id": t["spotify_id"],
                     "name": t["name"],
                     "artist": t["artist"],
+                    "disc_number": t["disc_number"] or 1,
                     "track_number": t["track_number"],
                     "duration_ms": t["duration_ms"],
                     "rankings": {}
@@ -122,13 +123,14 @@ def list_albums():
                     spotify_id=track_data["spotify_id"],
                     name=track_data["name"],
                     artist=track_data["artist"],
+                    disc_number=track_data["disc_number"],
                     track_number=track_data["track_number"],
                     duration_ms=track_data["duration_ms"],
                     rankings=user_rankings,
                     average_score=round(track_avg, 1) if track_avg else None
                 ))
 
-            tracks_with_rankings.sort(key=lambda t: t.track_number)
+            tracks_with_rankings.sort(key=lambda t: (t.disc_number, t.track_number))
 
             album_avg = sum(album_scores) / len(album_scores) if album_scores else None
             track_avg = sum(all_track_scores) / len(all_track_scores) if all_track_scores else None
@@ -194,10 +196,10 @@ async def add_album(album: AlbumAdd, x_user_id: Optional[int] = Header(None)):
     with get_connection() as conn:
         for track in tracks:
             conn.execute(
-                """INSERT INTO tracks (album_id, spotify_id, name, artist, track_number, duration_ms)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO tracks (album_id, spotify_id, name, artist, disc_number, track_number, duration_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (album_id, track["spotify_id"], track["name"], track["artist"],
-                 track["track_number"], track["duration_ms"])
+                 track["disc_number"], track["track_number"], track["duration_ms"])
             )
 
     return album_row

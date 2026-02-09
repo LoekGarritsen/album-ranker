@@ -38,7 +38,7 @@ def get_results():
                 LEFT JOIN track_rankings tr ON t.id = tr.track_id
                 WHERE t.album_id = ?
                 GROUP BY t.id
-                ORDER BY t.track_number
+                ORDER BY t.disc_number, t.track_number
             """, (album["id"],)).fetchall()
 
             track_results = []
