@@ -51,7 +51,7 @@ Create `.env` in backend directory:
 ```
 SPOTIFY_CLIENT_ID=<client_id>
 SPOTIFY_CLIENT_SECRET=<client_secret>
-SPOTIFY_REDIRECT_URI=https://albums.garritsen.online/api/spotify/callback
+SPOTIFY_REDIRECT_URI=https://albums.garritsen.dev/api/spotify/callback
 ```
 
 ## Key Files
@@ -84,31 +84,8 @@ Vue composables provide singleton state:
 - `useSession()` - Session membership, WebSocket connection, playback sync
 - `useSpotifyPlayer()` - Spotify SDK instance, playback controls
 
-## Production URL
-
-https://albums.garritsen.online (proxied through Nginx Proxy Manager on helios)
-
 ## Deployment
 
-Production runs on **hermes** (192.168.2.211) at `/docker/album-ranker/`.
-
-### Deploy via Git (preferred)
-```bash
-ssh hermes "cd /docker/album-ranker && git pull && docker compose up -d --build"
-```
-
-### Git Setup on Hermes
-- Deploy key: `~/.ssh/album-ranker-deploy` (read-only access to this repo)
-- SSH config uses host alias `github.com-album-ranker` for this key
-- Remote: `git@github.com-album-ranker:LoekGarritsen/album-ranker.git`
-
-### Manual Deploy (if git unavailable)
-```bash
-rsync -avz --exclude='.git' --exclude='node_modules' --exclude='__pycache__' --exclude='.env' --exclude='data' ./ hermes:/docker/album-ranker/
-ssh hermes "cd /docker/album-ranker && docker compose up -d --build"
-```
-
-### Important Paths on Hermes
-- App directory: `/docker/album-ranker/`
-- Database: `/docker/album-ranker/data/albums.db`
-- Environment: `/docker/album-ranker/.env` (not in git)
+Built and run via Docker Compose (`docker compose up -d --build`). The backend
+reads `backend/.env` (git-ignored) for Spotify credentials; SQLite lives in
+`./data/`.
