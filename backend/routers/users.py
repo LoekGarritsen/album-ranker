@@ -1,58 +1,23 @@
 """
-User management routes.
+User directory routes.
+
+User accounts are created and authenticated via magic-link login (see
+routers/auth.py). This module only exposes the roster used by comparison and
+stats views. Identity/authorisation is handled by auth_deps, not here.
 """
-from fastapi import APIRouter, HTTPException, Header
-from typing import Optional
+from fastapi import APIRouter
 
 from database import get_connection
-from models import UserCreate, User, PinVerify
+from models import User
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
-def verify_admin(user_id: Optional[int]) -> bool:
-    """Check if a user is an admin."""
-    if not user_id:
-        return False
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT is_admin FROM users WHERE id = ?", (user_id,)
-        ).fetchone()
-        return row and row["is_admin"] == 1
-
-
 @router.get("", response_model=list[User])
 def list_users():
-    """List all users."""
+    """List all users (names + admin flag) for comparison/stats UIs."""
     with get_connection() as conn:
-        rows = conn.execute("SELECT id, name, is_admin, created_at FROM users ORDER BY name").fetchall()
+        rows = conn.execute(
+            "SELECT id, name, is_admin, created_at FROM users ORDER BY name"
+        ).fetchall()
         return [dict(row) for row in rows]
-
-
-@router.post("", response_model=User)
-def create_user(user: UserCreate):
-    """Create a new user."""
-    with get_connection() as conn:
-        try:
-            cursor = conn.execute(
-                "INSERT INTO users (name, is_admin) VALUES (?, 0) RETURNING id, name, is_admin, created_at",
-                (user.name,)
-            )
-            return dict(cursor.fetchone())
-        except Exception:
-            raise HTTPException(400, "User already exists")
-
-
-@router.post("/verify-pin")
-def verify_pin(data: PinVerify):
-    """Verify admin PIN for elevated access."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT pin FROM users WHERE id = ? AND is_admin = 1",
-            (data.user_id,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(404, "Admin user not found")
-        if row["pin"] != data.pin:
-            raise HTTPException(401, "Invalid PIN")
-        return {"ok": True}

@@ -56,7 +56,7 @@ class TestCreateSession:
         )
 
         assert response.status_code == 401
-        assert "User required" in response.json()["detail"]
+        assert "Not authenticated" in response.json()["detail"]
 
     def test_create_session_nonexistent_album(self, client, admin_headers):
         """Should reject session with non-existent album."""

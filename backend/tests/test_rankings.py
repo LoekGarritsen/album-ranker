@@ -1,292 +1,136 @@
 """
 Tests for album and track rating functionality.
+
+Ratings are always attributed to the authenticated caller (any user_id in the
+body is ignored), so multi-user tests use distinct auth headers.
 """
-import pytest
+import sqlite3
 
 
 class TestAlbumRanking:
-    """Tests for POST /api/rankings/album endpoint."""
+    """POST /api/rankings/album."""
+
+    def test_requires_auth(self, client):
+        assert client.post("/api/rankings/album", json={"album_id": 1, "score": 8.5}).status_code == 401
 
     def test_submit_album_rating(self, client, user_headers):
-        """Should create a new album rating."""
-        response = client.post(
-            "/api/rankings/album",
-            json={
-                "album_id": 1,
-                "user_id": 2,
-                "score": 8.5,
-                "comment": "Great album!"
-            }
-        )
-
-        assert response.status_code == 200
-        assert response.json() == {"ok": True}
+        r = client.post("/api/rankings/album", json={"album_id": 1, "score": 8.5, "comment": "Great album!"}, headers=user_headers)
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
 
     def test_update_album_rating(self, client, user_headers):
-        """Should update an existing rating (UPSERT behavior)."""
-        # Submit initial rating
-        client.post(
-            "/api/rankings/album",
-            json={"album_id": 1, "user_id": 2, "score": 7.0, "comment": "Good"}
-        )
+        client.post("/api/rankings/album", json={"album_id": 1, "score": 7.0, "comment": "Good"}, headers=user_headers)
+        r = client.post("/api/rankings/album", json={"album_id": 1, "score": 9.0, "comment": "Actually great!"}, headers=user_headers)
+        assert r.status_code == 200
 
-        # Update rating
-        response = client.post(
-            "/api/rankings/album",
-            json={"album_id": 1, "user_id": 2, "score": 9.0, "comment": "Actually great!"}
-        )
+        album = next(a for a in client.get("/api/albums", headers=user_headers).json() if a["id"] == 1)
+        ranking = next(rk for rk in album["album_rankings"] if rk["user_id"] == 2)
+        assert ranking["score"] == 9.0
+        assert ranking["comment"] == "Actually great!"
 
-        assert response.status_code == 200
+    def test_score_validation(self, client, user_headers):
+        assert client.post("/api/rankings/album", json={"album_id": 1, "score": 0.5}, headers=user_headers).status_code == 422
+        assert client.post("/api/rankings/album", json={"album_id": 1, "score": 11}, headers=user_headers).status_code == 422
 
-        # Verify update by checking albums endpoint
-        albums_response = client.get("/api/albums")
-        album = next(a for a in albums_response.json() if a["id"] == 1)
-        user_ranking = next(
-            r for r in album["album_rankings"] if r["user_id"] == 2
-        )
-        assert user_ranking["score"] == 9.0
-        assert user_ranking["comment"] == "Actually great!"
+    def test_nonexistent_album(self, client, user_headers):
+        r = client.post("/api/rankings/album", json={"album_id": 999, "score": 8.0}, headers=user_headers)
+        assert r.status_code == 404
+        assert "Album not found" in r.json()["detail"]
 
-    def test_album_rating_score_validation_min(self, client):
-        """Should reject scores below 1."""
-        response = client.post(
-            "/api/rankings/album",
-            json={"album_id": 1, "user_id": 2, "score": 0.5}
-        )
+    def test_comment_optional(self, client, user_headers):
+        assert client.post("/api/rankings/album", json={"album_id": 1, "score": 7.5}, headers=user_headers).status_code == 200
 
-        assert response.status_code == 422
+    def test_body_user_id_is_ignored(self, client, user_headers):
+        # Spoofing another user_id in the body must NOT attribute the rating to them.
+        client.post("/api/rankings/album", json={"album_id": 1, "user_id": 1, "score": 3.0}, headers=user_headers)
+        album = next(a for a in client.get("/api/albums", headers=user_headers).json() if a["id"] == 1)
+        rankings = {rk["user_id"]: rk["score"] for rk in album["album_rankings"]}
+        assert rankings.get(2) == 3.0   # attributed to the caller (user 2)
+        assert rankings.get(1) is None  # NOT the spoofed admin
 
-    def test_album_rating_score_validation_max(self, client):
-        """Should reject scores above 10."""
-        response = client.post(
-            "/api/rankings/album",
-            json={"album_id": 1, "user_id": 2, "score": 11}
-        )
-
-        assert response.status_code == 422
-
-    def test_album_rating_nonexistent_album(self, client):
-        """Should return 404 for non-existent album."""
-        response = client.post(
-            "/api/rankings/album",
-            json={"album_id": 999, "user_id": 2, "score": 8.0}
-        )
-
-        assert response.status_code == 404
-        assert "Album not found" in response.json()["detail"]
-
-    def test_album_rating_nonexistent_user(self, client):
-        """Should return 404 for non-existent user."""
-        response = client.post(
-            "/api/rankings/album",
-            json={"album_id": 1, "user_id": 999, "score": 8.0}
-        )
-
-        assert response.status_code == 404
-        assert "User not found" in response.json()["detail"]
-
-    def test_album_rating_optional_comment(self, client):
-        """Comment should be optional."""
-        response = client.post(
-            "/api/rankings/album",
-            json={"album_id": 1, "user_id": 2, "score": 7.5}
-        )
-
-        assert response.status_code == 200
-
-    def test_album_rating_affects_average(self, client):
-        """Album average should reflect all ratings."""
-        # Admin rates album
-        client.post(
-            "/api/rankings/album",
-            json={"album_id": 1, "user_id": 1, "score": 8.0}
-        )
-        # User rates album
-        client.post(
-            "/api/rankings/album",
-            json={"album_id": 1, "user_id": 2, "score": 6.0}
-        )
-
-        # Check average
-        albums_response = client.get("/api/albums")
-        album = next(a for a in albums_response.json() if a["id"] == 1)
-
+    def test_rating_affects_average(self, client, admin_headers, user_headers):
+        client.post("/api/rankings/album", json={"album_id": 1, "score": 8.0}, headers=admin_headers)
+        client.post("/api/rankings/album", json={"album_id": 1, "score": 6.0}, headers=user_headers)
+        album = next(a for a in client.get("/api/albums", headers=user_headers).json() if a["id"] == 1)
         assert album["average_album_score"] == 7.0
 
 
 class TestTrackRanking:
-    """Tests for POST /api/rankings/track endpoint."""
+    """POST /api/rankings/track."""
 
-    def test_submit_track_rating(self, client):
-        """Should create a new track rating."""
-        response = client.post(
-            "/api/rankings/track",
-            json={
-                "track_id": 1,
-                "user_id": 2,
-                "score": 9.0,
-                "comment": "Best track!"
-            }
-        )
+    def test_submit_track_rating(self, client, user_headers):
+        r = client.post("/api/rankings/track", json={"track_id": 1, "score": 9.0, "comment": "Best track!"}, headers=user_headers)
+        assert r.status_code == 200
 
-        assert response.status_code == 200
-        assert response.json() == {"ok": True}
+    def test_nonexistent_track(self, client, user_headers):
+        r = client.post("/api/rankings/track", json={"track_id": 999, "score": 8.0}, headers=user_headers)
+        assert r.status_code == 404
+        assert "Track not found" in r.json()["detail"]
 
-    def test_update_track_rating(self, client):
-        """Should update an existing track rating."""
-        # Submit initial rating
-        client.post(
-            "/api/rankings/track",
-            json={"track_id": 1, "user_id": 2, "score": 7.0}
-        )
-
-        # Update rating
-        response = client.post(
-            "/api/rankings/track",
-            json={"track_id": 1, "user_id": 2, "score": 8.5, "comment": "Grew on me"}
-        )
-
-        assert response.status_code == 200
-
-    def test_track_rating_nonexistent_track(self, client):
-        """Should return 404 for non-existent track."""
-        response = client.post(
-            "/api/rankings/track",
-            json={"track_id": 999, "user_id": 2, "score": 8.0}
-        )
-
-        assert response.status_code == 404
-        assert "Track not found" in response.json()["detail"]
-
-    def test_track_rating_nonexistent_user(self, client):
-        """Should return 404 for non-existent user."""
-        response = client.post(
-            "/api/rankings/track",
-            json={"track_id": 1, "user_id": 999, "score": 8.0}
-        )
-
-        assert response.status_code == 404
-        assert "User not found" in response.json()["detail"]
-
-    def test_multiple_users_can_rate_same_track(self, client):
-        """Multiple users should be able to rate the same track."""
-        # User 1 rates
-        client.post(
-            "/api/rankings/track",
-            json={"track_id": 1, "user_id": 1, "score": 8.0}
-        )
-        # User 2 rates
-        response = client.post(
-            "/api/rankings/track",
-            json={"track_id": 1, "user_id": 2, "score": 9.0}
-        )
-
-        assert response.status_code == 200
+    def test_multiple_users_can_rate_same_track(self, client, admin_headers, user_headers):
+        assert client.post("/api/rankings/track", json={"track_id": 1, "score": 8.0}, headers=admin_headers).status_code == 200
+        assert client.post("/api/rankings/track", json={"track_id": 1, "score": 9.0}, headers=user_headers).status_code == 200
 
 
 class TestTrackDetails:
-    """Tests for GET /api/tracks/{track_id} endpoint."""
+    """GET /api/tracks/{track_id}."""
 
-    def test_get_track_details(self, client):
-        """Should return track with rankings."""
-        # Submit some ratings first
-        client.post(
-            "/api/rankings/track",
-            json={"track_id": 1, "user_id": 1, "score": 8.0, "comment": "Great!"}
-        )
-        client.post(
-            "/api/rankings/track",
-            json={"track_id": 1, "user_id": 2, "score": 7.0}
-        )
+    def test_get_track_details(self, client, admin_headers, user_headers):
+        client.post("/api/rankings/track", json={"track_id": 1, "score": 8.0, "comment": "Great!"}, headers=admin_headers)
+        client.post("/api/rankings/track", json={"track_id": 1, "score": 7.0}, headers=user_headers)
 
-        response = client.get("/api/tracks/1")
-
-        assert response.status_code == 200
-        data = response.json()
+        r = client.get("/api/tracks/1", headers=user_headers)
+        assert r.status_code == 200
+        data = r.json()
         assert data["id"] == 1
         assert data["name"] == "Track 1"
         assert len(data["rankings"]) == 2
         assert data["average_score"] == 7.5
 
-    def test_get_track_details_nonexistent(self, client):
-        """Should return 404 for non-existent track."""
-        response = client.get("/api/tracks/999")
+    def test_nonexistent(self, client, user_headers):
+        assert client.get("/api/tracks/999", headers=user_headers).status_code == 404
 
-        assert response.status_code == 404
-
-    def test_get_track_details_no_ratings(self, client):
-        """Should return track with empty rankings if not rated."""
-        response = client.get("/api/tracks/2")  # Track 2 has no ratings
-
-        assert response.status_code == 200
-        data = response.json()
+    def test_no_ratings(self, client, user_headers):
+        data = client.get("/api/tracks/2", headers=user_headers).json()
         assert data["rankings"] == []
         assert data["average_score"] is None
 
 
 class TestAlbumsList:
-    """Tests for GET /api/albums endpoint with rankings."""
+    """GET /api/albums."""
 
-    def test_albums_include_track_rankings(self, client):
-        """Albums endpoint should include track rankings."""
-        # Rate a track
-        client.post(
-            "/api/rankings/track",
-            json={"track_id": 1, "user_id": 2, "score": 8.5}
-        )
+    def test_requires_auth(self, client):
+        assert client.get("/api/albums").status_code == 401
 
-        response = client.get("/api/albums")
-
-        assert response.status_code == 200
-        albums = response.json()
-        album = next(a for a in albums if a["id"] == 1)
-
-        # Find Track 1 in the album's tracks
+    def test_albums_include_track_rankings(self, client, user_headers):
+        client.post("/api/rankings/track", json={"track_id": 1, "score": 8.5}, headers=user_headers)
+        album = next(a for a in client.get("/api/albums", headers=user_headers).json() if a["id"] == 1)
         track = next(t for t in album["tracks"] if t["id"] == 1)
-        # Albums endpoint returns all users' rankings (including null for unrated)
-        # Find the rating from user 2
-        user2_ranking = next(r for r in track["rankings"] if r["user_id"] == 2)
-        assert user2_ranking["score"] == 8.5
+        ranking = next(r for r in track["rankings"] if r["user_id"] == 2)
+        assert ranking["score"] == 8.5
 
-    def test_albums_calculate_average_track_score(self, client):
-        """Should calculate average track score across all tracks."""
-        # Rate all tracks
-        client.post("/api/rankings/track", json={"track_id": 1, "user_id": 2, "score": 9.0})
-        client.post("/api/rankings/track", json={"track_id": 2, "user_id": 2, "score": 8.0})
-        client.post("/api/rankings/track", json={"track_id": 3, "user_id": 2, "score": 7.0})
-
-        response = client.get("/api/albums")
-        album = next(a for a in response.json() if a["id"] == 1)
-
-        # Average of 9, 8, 7 = 8.0
+    def test_average_track_score(self, client, user_headers):
+        client.post("/api/rankings/track", json={"track_id": 1, "score": 9.0}, headers=user_headers)
+        client.post("/api/rankings/track", json={"track_id": 2, "score": 8.0}, headers=user_headers)
+        client.post("/api/rankings/track", json={"track_id": 3, "score": 7.0}, headers=user_headers)
+        album = next(a for a in client.get("/api/albums", headers=user_headers).json() if a["id"] == 1)
         assert album["average_track_score"] == 8.0
 
 
 class TestResultsEndpoint:
-    """Tests for GET /api/results endpoint."""
+    """GET /api/results."""
 
-    def test_results_sorted_by_average(self, client, seeded_db):
-        """Results should be sorted by average score descending."""
-        # Add another album directly to DB for sorting test
-        with seeded_db() as conn:
-            conn.execute("""
-                INSERT INTO albums (id, spotify_id, name, artist)
-                VALUES (2, 'spotify:album:second', 'Second Album', 'Another Artist')
-            """)
+    def test_results_sorted_by_average(self, client, user_headers, temp_db_path):
+        conn = sqlite3.connect(temp_db_path)
+        conn.execute(
+            "INSERT INTO albums (id, spotify_id, name, artist) VALUES (2, 'spotify:album:second', 'Second Album', 'Another Artist')"
+        )
+        conn.commit()
+        conn.close()
 
-        # Rate first album lower
-        client.post("/api/rankings/album", json={"album_id": 1, "user_id": 2, "score": 6.0})
-        # Rate second album higher
-        client.post("/api/rankings/album", json={"album_id": 2, "user_id": 2, "score": 9.0})
+        client.post("/api/rankings/album", json={"album_id": 1, "score": 6.0}, headers=user_headers)
+        client.post("/api/rankings/album", json={"album_id": 2, "score": 9.0}, headers=user_headers)
 
-        response = client.get("/api/results")
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Results endpoint returns {"results": [...]}
-        results = data["results"]
-
-        # Higher rated album should come first
+        results = client.get("/api/results", headers=user_headers).json()["results"]
         assert results[0]["album"]["name"] == "Second Album"
         assert results[1]["album"]["name"] == "Test Album"
