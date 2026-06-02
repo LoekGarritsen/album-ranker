@@ -49,6 +49,11 @@ async def request_magic_link(data: MagicLinkRequest, request: Request):
     """Send a magic sign-in link. Always returns ok (no account enumeration)."""
     email = data.email.lower().strip()
 
+    # Allow-list gate: silently no-op for non-permitted emails so the response
+    # is identical (no enumeration) but no account/email/quota is consumed.
+    if not config.email_allowed(email):
+        return {"ok": True}
+
     with get_connection() as conn:
         user = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
         if not user:

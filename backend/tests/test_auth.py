@@ -66,3 +66,24 @@ class TestMagicLink:
 
     def test_me_requires_auth(self, client):
         assert client.get("/api/auth/me").status_code == 401
+
+
+class TestAllowList:
+    def test_non_allowlisted_email_is_silently_dropped(self, client, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "ALLOWED_EMAILS", {"admin@test.dev"})
+        sent = []
+
+        async def fake_send(to, link):
+            sent.append(to)
+            return True
+
+        with patch("routers.auth.send_magic_link", new=AsyncMock(side_effect=fake_send)):
+            # Not on the list: identical 200 response, but nothing sent/created.
+            r = client.post("/api/auth/request", json={"email": "stranger@example.com"})
+            assert r.status_code == 200 and r.json() == {"ok": True}
+            assert sent == []
+            # On the list: link is sent.
+            r = client.post("/api/auth/request", json={"email": "admin@test.dev"})
+            assert r.status_code == 200
+            assert sent == ["admin@test.dev"]
