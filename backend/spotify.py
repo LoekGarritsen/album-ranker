@@ -165,7 +165,7 @@ class SpotifyOAuth:
     def __init__(self):
         self.client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
         self.client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "")
-        self.redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "https://albums.garritsen.online/api/spotify/callback")
+        self.redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "https://albums.garritsen.dev/api/spotify/callback")
 
     def get_authorize_url(self, state: str) -> str:
         """Generate OAuth authorization URL"""
