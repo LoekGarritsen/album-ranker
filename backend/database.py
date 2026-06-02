@@ -2,6 +2,8 @@ import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
 
+import config
+
 DB_PATH = Path(__file__).parent / "data" / "album_ranker.db"
 
 def get_db_path() -> Path:
@@ -107,18 +109,48 @@ def init_db():
                 expires_at TIMESTAMP NOT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            -- Magic-link login tokens (single-use, short-lived, stored hashed)
+            CREATE TABLE IF NOT EXISTS magic_links (
+                id INTEGER PRIMARY KEY,
+                email TEXT NOT NULL,
+                token_hash TEXT UNIQUE NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_magic_links_hash ON magic_links(token_hash);
+
+            -- Issued session tokens (replace client-trusted X-User-Id), stored hashed
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token_hash TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_auth_sessions_hash ON auth_sessions(token_hash);
         """)
 
-        # Insert admin user if none exist
+        # Migrations for existing databases (must run before admin seeding so
+        # the email column exists)
+        _run_migrations(conn)
+
+        # Insert admin user if none exist. The admin's email comes from the
+        # ADMIN_EMAIL env var (never hardcoded); magic-link login is sent there.
         cursor = conn.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
         if cursor.fetchone()[0] == 0:
             conn.execute(
-                "INSERT INTO users (name, is_admin, pin) VALUES (?, 1, ?)",
-                ("Loek", "0406")
+                "INSERT INTO users (name, is_admin, email) VALUES (?, 1, ?)",
+                ("Loek", config.ADMIN_EMAIL or None),
             )
-
-        # Migrations for existing databases
-        _run_migrations(conn)
+        elif config.ADMIN_EMAIL:
+            # Backfill the admin email on an existing DB if it's missing.
+            conn.execute(
+                "UPDATE users SET email = ? WHERE is_admin = 1 AND (email IS NULL OR email = '')",
+                (config.ADMIN_EMAIL,),
+            )
 
 def _run_migrations(conn):
     """Run database migrations for existing tables"""
@@ -148,3 +180,13 @@ def _run_migrations(conn):
 
     if 'disc_number' not in track_columns:
         conn.execute("ALTER TABLE tracks ADD COLUMN disc_number INTEGER DEFAULT 1")
+
+    # Add email to users (magic-link login key). Unique among non-null values.
+    cursor = conn.execute("PRAGMA table_info(users)")
+    user_columns = {row[1] for row in cursor.fetchall()}
+
+    if 'email' not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL"
+    )

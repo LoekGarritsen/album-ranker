@@ -105,7 +105,10 @@ export function useSession() {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api/sessions/${code}/ws?user_id=${userId}`
+    // Browsers can't set WS headers, so identity rides as the session token in
+    // the query string (validated server-side; absent/invalid => guest).
+    const authToken = localStorage.getItem('authToken') || ''
+    const wsUrl = `${protocol}//${window.location.host}/api/sessions/${code}/ws?token=${encodeURIComponent(authToken)}`
 
     ws.value = new WebSocket(wsUrl)
 

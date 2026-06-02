@@ -1,13 +1,14 @@
 """
 Rating/ranking routes for albums and tracks.
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional
 
 from database import get_connection
 from models import AlbumRankingCreate, TrackRankingCreate
 from spotify import fetch_lyrics
 from state import active_sessions
+from auth_deps import get_current_user
 
 router = APIRouter(prefix="/api", tags=["rankings"])
 
@@ -28,47 +29,44 @@ async def broadcast_to_session(code: str, message: dict):
 
 
 @router.post("/rankings/album")
-def submit_album_ranking(ranking: AlbumRankingCreate):
-    """Submit or update an album rating."""
+def submit_album_ranking(ranking: AlbumRankingCreate, user: dict = Depends(get_current_user)):
+    """Submit or update an album rating (always attributed to the caller)."""
+    user_id = user["id"]
     with get_connection() as conn:
         if not conn.execute("SELECT 1 FROM albums WHERE id = ?", (ranking.album_id,)).fetchone():
             raise HTTPException(404, "Album not found")
-        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (ranking.user_id,)).fetchone():
-            raise HTTPException(404, "User not found")
 
         conn.execute("""
             INSERT INTO album_rankings (album_id, user_id, score, comment)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(album_id, user_id)
             DO UPDATE SET score = excluded.score, comment = excluded.comment, ranked_at = CURRENT_TIMESTAMP
-        """, (ranking.album_id, ranking.user_id, ranking.score, ranking.comment))
+        """, (ranking.album_id, user_id, ranking.score, ranking.comment))
 
         return {"ok": True}
 
 
 @router.post("/rankings/track")
-async def submit_track_ranking(ranking: TrackRankingCreate, session_code: Optional[str] = Query(None)):
-    """Submit or update a track rating. Broadcasts to session if session_code provided."""
+async def submit_track_ranking(ranking: TrackRankingCreate, session_code: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
+    """Submit or update a track rating (always attributed to the caller)."""
+    user_id = user["id"]
     with get_connection() as conn:
         if not conn.execute("SELECT 1 FROM tracks WHERE id = ?", (ranking.track_id,)).fetchone():
             raise HTTPException(404, "Track not found")
-        user = conn.execute("SELECT id, name FROM users WHERE id = ?", (ranking.user_id,)).fetchone()
-        if not user:
-            raise HTTPException(404, "User not found")
 
         conn.execute("""
             INSERT INTO track_rankings (track_id, user_id, score, comment)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(track_id, user_id)
             DO UPDATE SET score = excluded.score, comment = excluded.comment, ranked_at = CURRENT_TIMESTAMP
-        """, (ranking.track_id, ranking.user_id, ranking.score, ranking.comment))
+        """, (ranking.track_id, user_id, ranking.score, ranking.comment))
 
     # Broadcast rating to session if provided
     if session_code and session_code in active_sessions:
         await broadcast_to_session(session_code, {
             "type": "rating",
             "track_id": ranking.track_id,
-            "user_id": ranking.user_id,
+            "user_id": user_id,
             "user_name": user["name"],
             "score": ranking.score,
             "comment": ranking.comment

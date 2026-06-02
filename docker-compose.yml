@@ -6,7 +6,7 @@ services:
     container_name: album-ranker-backend
     restart: unless-stopped
     ports:
-      - "8400:8400"
+      - "${BACKEND_PORT:-8310}:8400"
     environment:
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
@@ -23,7 +23,7 @@ services:
     container_name: album-ranker-frontend
     restart: unless-stopped
     ports:
-      - "8401:8401"
+      - "${FRONTEND_PORT:-8311}:8401"
     depends_on:
       - backend
     networks:

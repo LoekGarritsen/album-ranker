@@ -1,7 +1,7 @@
 """
 Listening session routes including WebSocket handling.
 """
-from fastapi import APIRouter, HTTPException, Header, Query, WebSocket
+from fastapi import APIRouter, HTTPException, Depends, Query, WebSocket
 from typing import Optional
 import random
 import string
@@ -11,6 +11,8 @@ import uuid
 from database import get_connection
 from models import ListeningSession, SessionCreate, SessionJoin
 from state import active_sessions
+from auth_deps import get_current_user
+from security import hash_password, verify_password, hash_token
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -86,12 +88,12 @@ def list_sessions():
 
 
 @router.post("")
-def create_session(data: SessionCreate, x_user_id: Optional[int] = Header(None)):
+def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
     """Create a new listening session."""
-    if not x_user_id:
-        raise HTTPException(401, "User required")
-
+    x_user_id = user["id"]
     code = generate_session_code()
+    # Hash the room password at rest (never store plaintext).
+    password_hash = hash_password(data.password) if data.password else None
 
     album = None
     first_track = None
@@ -110,7 +112,7 @@ def create_session(data: SessionCreate, x_user_id: Optional[int] = Header(None))
         conn.execute("""
             INSERT INTO listening_sessions (code, name, album_id, current_track_id, created_by, is_public, password)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (code, data.name, data.album_id, first_track["id"] if first_track else None, x_user_id, 1 if data.is_public else 0, data.password))
+        """, (code, data.name, data.album_id, first_track["id"] if first_track else None, x_user_id, 1 if data.is_public else 0, password_hash))
 
         conn.execute("""
             INSERT OR IGNORE INTO session_participants (session_id, user_id)
@@ -195,10 +197,9 @@ def get_session(code: str):
 
 
 @router.post("/{code}/join")
-def join_session(code: str, data: SessionJoin = None, x_user_id: Optional[int] = Header(None)):
+def join_session(code: str, data: SessionJoin = None, user: dict = Depends(get_current_user)):
     """Join an existing session."""
-    if not x_user_id:
-        raise HTTPException(401, "User required")
+    x_user_id = user["id"]
 
     with get_connection() as conn:
         session = conn.execute(
@@ -211,7 +212,7 @@ def join_session(code: str, data: SessionJoin = None, x_user_id: Optional[int] =
 
         if session["password"]:
             provided_password = data.password if data else None
-            if not provided_password or provided_password != session["password"]:
+            if not provided_password or not verify_password(provided_password, session["password"]):
                 raise HTTPException(403, "Invalid password")
 
         conn.execute("""
@@ -223,8 +224,9 @@ def join_session(code: str, data: SessionJoin = None, x_user_id: Optional[int] =
 
 
 @router.post("/{code}/track")
-async def update_session_track(code: str, track_id: int = Query(...), x_user_id: Optional[int] = Header(None)):
+async def update_session_track(code: str, track_id: int = Query(...), user: dict = Depends(get_current_user)):
     """Update the current track in a session."""
+    x_user_id = user["id"]
     user_name = None
     with get_connection() as conn:
         conn.execute("""
@@ -260,8 +262,9 @@ async def update_session_track(code: str, track_id: int = Query(...), x_user_id:
 
 
 @router.post("/{code}/album")
-async def set_session_album(code: str, album_id: int = Query(...), x_user_id: Optional[int] = Header(None)):
+async def set_session_album(code: str, album_id: int = Query(...), user: dict = Depends(get_current_user)):
     """Change the album for a session."""
+    x_user_id = user["id"]
     user_name = None
     with get_connection() as conn:
         album = conn.execute("SELECT * FROM albums WHERE id = ?", (album_id,)).fetchone()
@@ -305,7 +308,7 @@ async def set_session_album(code: str, album_id: int = Query(...), x_user_id: Op
 
 
 @router.post("/{code}/playback")
-async def control_playback(code: str, action: str = Query(...), position: Optional[int] = Query(None), x_user_id: Optional[int] = Header(None)):
+async def control_playback(code: str, action: str = Query(...), position: Optional[int] = Query(None), user: dict = Depends(get_current_user)):
     """Control playback (play/pause/seek)."""
     if code not in active_sessions:
         raise HTTPException(404, "Session not active")
@@ -347,9 +350,19 @@ async def control_playback(code: str, action: str = Query(...), position: Option
 
 
 @router.websocket("/{code}/ws")
-async def session_websocket(websocket: WebSocket, code: str, user_id: Optional[int] = Query(None)):
-    """WebSocket endpoint for real-time session updates."""
+async def session_websocket(websocket: WebSocket, code: str, token: Optional[str] = Query(None)):
+    """WebSocket endpoint for real-time session updates.
+
+    Identity comes from a session token in the query string (browsers can't
+    set WS headers). An invalid/absent token connects as an anonymous guest,
+    which is fine for listening in public rooms.
+    """
     await websocket.accept()
+
+    # Resolve identity from the session token (never a client-supplied id).
+    from auth_deps import _user_from_token
+    authed = _user_from_token(token)
+    user_id = authed["id"] if authed else None
 
     if code not in active_sessions:
         with get_connection() as conn:
@@ -437,9 +450,18 @@ async def session_websocket(websocket: WebSocket, code: str, user_id: Optional[i
 
 
 @router.delete("/{code}")
-async def end_session(code: str, x_user_id: Optional[int] = Header(None)):
-    """End a listening session."""
+async def end_session(code: str, user: dict = Depends(get_current_user)):
+    """End a listening session (creator or admin only)."""
     with get_connection() as conn:
+        session = conn.execute(
+            "SELECT created_by FROM listening_sessions WHERE code = ? AND is_active = 1",
+            (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session["created_by"] != user["id"] and not user["is_admin"]:
+            raise HTTPException(403, "Only the room creator can close it")
+
         conn.execute("""
             UPDATE listening_sessions SET is_active = 0
             WHERE code = ?

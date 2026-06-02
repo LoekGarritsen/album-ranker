@@ -1,14 +1,13 @@
 """
 Album management routes.
 """
-from fastapi import APIRouter, HTTPException, Header
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends
 import json
 
 from database import get_connection
 from models import AlbumAdd, Album, AlbumWithTracks, UserRanking, TrackWithRankings
 from spotify import spotify_client
-from routers.users import verify_admin
+from auth_deps import require_admin
 
 router = APIRouter(prefix="/api/albums", tags=["albums"])
 
@@ -156,10 +155,8 @@ def list_albums():
 
 
 @router.post("", response_model=Album)
-async def add_album(album: AlbumAdd, x_user_id: Optional[int] = Header(None)):
+async def add_album(album: AlbumAdd, admin: dict = Depends(require_admin)):
     """Add a new album from Spotify (admin only)."""
-    if not verify_admin(x_user_id):
-        raise HTTPException(403, "Admin access required")
 
     # Fetch genres from Spotify
     genres = []
@@ -206,10 +203,8 @@ async def add_album(album: AlbumAdd, x_user_id: Optional[int] = Header(None)):
 
 
 @router.delete("/{album_id}")
-def remove_album(album_id: int, x_user_id: Optional[int] = Header(None)):
+def remove_album(album_id: int, admin: dict = Depends(require_admin)):
     """Delete an album (admin only)."""
-    if not verify_admin(x_user_id):
-        raise HTTPException(403, "Admin access required")
 
     with get_connection() as conn:
         # Clear track references in sessions before deleting (tracks cascade from album)

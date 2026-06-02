@@ -11,6 +11,7 @@ import TierList from './views/TierList.vue'
 import YearReview from './views/YearReview.vue'
 import Session from './views/Session.vue'
 import Rooms from './views/Rooms.vue'
+import AuthVerify from './views/AuthVerify.vue'
 
 const routes = [
   { path: '/', component: Albums },
@@ -21,6 +22,7 @@ const routes = [
   { path: '/year-review', component: YearReview },
   { path: '/session/:code', component: Session },
   { path: '/rooms', component: Rooms },
+  { path: '/auth/verify', component: AuthVerify },
 ]
 
 const router = createRouter({

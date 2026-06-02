@@ -19,13 +19,13 @@ class PinVerify(BaseModel):
 # Ranking models
 class AlbumRankingCreate(BaseModel):
     album_id: int
-    user_id: int
+    user_id: Optional[int] = None  # ignored; rating is attributed to the caller
     score: float = Field(ge=1, le=10)
     comment: Optional[str] = Field(None, max_length=500)
 
 class TrackRankingCreate(BaseModel):
     track_id: int
-    user_id: int
+    user_id: Optional[int] = None  # ignored; rating is attributed to the caller
     score: float = Field(ge=1, le=10)
     comment: Optional[str] = Field(None, max_length=500)
 

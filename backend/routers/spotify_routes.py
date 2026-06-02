@@ -1,28 +1,35 @@
 """
 Spotify integration routes (OAuth, search, tokens).
 """
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import RedirectResponse
-from typing import Optional
 from datetime import datetime, timedelta
 import httpx
 
 from database import get_connection
 from models import SpotifyAlbum
 from spotify import spotify_client, spotify_oauth
-from routers.users import verify_admin
+from auth_deps import get_current_user, require_admin
+from security import generate_token
+from state import spotify_oauth_states
 
 router = APIRouter(prefix="/api/spotify", tags=["spotify"])
+
+OAUTH_STATE_TTL_SEC = 600
+
+
+def _purge_expired_states():
+    now = datetime.now()
+    for k in [k for k, v in spotify_oauth_states.items() if v["expires_at"] < now]:
+        spotify_oauth_states.pop(k, None)
 
 
 @router.get("/search", response_model=list[SpotifyAlbum])
 async def search_spotify(
     q: str = Query(..., min_length=1),
-    x_user_id: Optional[int] = Header(None)
+    admin: dict = Depends(require_admin),
 ):
     """Search for albums on Spotify (admin only)."""
-    if not verify_admin(x_user_id):
-        raise HTTPException(403, "Admin access required")
     try:
         albums = await spotify_client.search_albums(q)
         return albums
@@ -43,23 +50,30 @@ async def get_new_releases():
 
 
 @router.get("/auth")
-def spotify_auth(x_user_id: Optional[int] = Header(None)):
+def spotify_auth(user: dict = Depends(get_current_user)):
     """Get Spotify authorization URL for OAuth flow."""
-    if not x_user_id:
-        raise HTTPException(401, "User required")
-
-    state = str(x_user_id)
+    _purge_expired_states()
+    state = generate_token(24)
+    spotify_oauth_states[state] = {
+        "user_id": user["id"],
+        "expires_at": datetime.now() + timedelta(seconds=OAUTH_STATE_TTL_SEC),
+    }
     auth_url = spotify_oauth.get_authorize_url(state)
     return {"auth_url": auth_url}
 
 
 @router.get("/callback")
 async def spotify_callback(code: str = Query(...), state: str = Query(...)):
-    """Handle OAuth callback from Spotify."""
-    try:
-        user_id = int(state)
-    except ValueError:
-        raise HTTPException(400, "Invalid state parameter")
+    """Handle OAuth callback from Spotify.
+
+    Identity comes from the random `state` nonce minted in /auth and bound to
+    the authenticated user — never from a client-supplied id.
+    """
+    _purge_expired_states()
+    entry = spotify_oauth_states.pop(state, None)
+    if not entry or entry["expires_at"] < datetime.now():
+        raise HTTPException(400, "Invalid or expired OAuth state")
+    user_id = entry["user_id"]
 
     try:
         tokens = await spotify_oauth.exchange_code(code)
@@ -101,10 +115,9 @@ async def spotify_callback(code: str = Query(...), state: str = Query(...)):
 
 
 @router.get("/token")
-async def get_spotify_token(x_user_id: Optional[int] = Header(None)):
+async def get_spotify_token(user: dict = Depends(get_current_user)):
     """Get user's Spotify access token (refreshes if expired)."""
-    if not x_user_id:
-        raise HTTPException(401, "User required")
+    x_user_id = user["id"]
 
     with get_connection() as conn:
         row = conn.execute(
@@ -139,27 +152,21 @@ async def get_spotify_token(x_user_id: Optional[int] = Header(None)):
 
 
 @router.get("/status")
-def spotify_status(x_user_id: Optional[int] = Header(None)):
+def spotify_status(user: dict = Depends(get_current_user)):
     """Check if user has Spotify connected."""
-    if not x_user_id:
-        return {"connected": False}
-
     with get_connection() as conn:
         row = conn.execute(
             "SELECT 1 FROM spotify_tokens WHERE user_id = ?",
-            (x_user_id,)
+            (user["id"],)
         ).fetchone()
 
         return {"connected": bool(row)}
 
 
 @router.delete("/disconnect")
-def spotify_disconnect(x_user_id: Optional[int] = Header(None)):
+def spotify_disconnect(user: dict = Depends(get_current_user)):
     """Disconnect user's Spotify account."""
-    if not x_user_id:
-        raise HTTPException(401, "User required")
-
     with get_connection() as conn:
-        conn.execute("DELETE FROM spotify_tokens WHERE user_id = ?", (x_user_id,))
+        conn.execute("DELETE FROM spotify_tokens WHERE user_id = ?", (user["id"],))
 
     return {"ok": True}
