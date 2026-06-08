@@ -151,7 +151,24 @@ class TestWebSocketPlaybackBroadcast:
                 change1 = ws1.receive_json()
                 assert change1["type"] == "track_change"
                 assert change1["track_id"] == 2
+                # Default track change resets to paused (manual pick).
+                assert change1["is_playing"] is False
                 assert ws2.receive_json()["type"] == "track_change"
+
+    def test_track_change_keep_playing(self, client, admin_headers, admin_token):
+        """A native (gapless) advance keeps the room playing without a pause."""
+        code = _make_session(client, admin_headers, name="Keep Playing Test", album_id=1)
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json(); ws.receive_json()
+            client.post(
+                f"/api/sessions/{code}/track",
+                params={"track_id": 2, "keep_playing": "true"},
+                headers=admin_headers,
+            )
+            change = ws.receive_json()
+            assert change["type"] == "track_change"
+            assert change["track_id"] == 2
+            assert change["is_playing"] is True
 
     def test_playback_control_broadcast(self, client, admin_headers, admin_token):
         code = _make_session(client, admin_headers, name="Playback Control Test", album_id=1)
