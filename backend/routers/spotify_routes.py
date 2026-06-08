@@ -4,7 +4,7 @@ Spotify integration routes (OAuth, search, tokens).
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import RedirectResponse
 from datetime import datetime, timedelta
-import httpx
+import logging
 
 from database import get_connection
 from models import SpotifyAlbum
@@ -14,6 +14,8 @@ from security import generate_token
 from state import spotify_oauth_states
 
 router = APIRouter(prefix="/api/spotify", tags=["spotify"])
+
+logger = logging.getLogger("spotify")
 
 OAUTH_STATE_TTL_SEC = 600
 
@@ -77,25 +79,13 @@ async def spotify_callback(code: str = Query(...), state: str = Query(...)):
 
     try:
         tokens = await spotify_oauth.exchange_code(code)
-        print(f"[Spotify OAuth] Got tokens for user {user_id}")
     except Exception as e:
-        print(f"[Spotify OAuth] Token exchange failed for user {user_id}: {e}")
-        return RedirectResponse(url=f"/?spotify_error={str(e)}")
+        # Log the detail server-side; never reflect raw error text back to the
+        # client (info disclosure). The frontend shows a generic message.
+        logger.warning("Spotify token exchange failed for user %s: %s", user_id, e)
+        return RedirectResponse(url="/?spotify_error=connect_failed")
 
-    # Verify the token works by checking the Spotify account
-    async with httpx.AsyncClient() as client:
-        try:
-            me_res = await client.get(
-                "https://api.spotify.com/v1/me",
-                headers={"Authorization": f"Bearer {tokens['access_token']}"}
-            )
-            if me_res.status_code == 200:
-                me_data = me_res.json()
-                print(f"[Spotify OAuth] User {user_id} -> Spotify account: {me_data.get('display_name')} ({me_data.get('email')}), plan: {me_data.get('product')}")
-            else:
-                print(f"[Spotify OAuth] User {user_id} -> /me check failed: {me_res.status_code}")
-        except Exception as e:
-            print(f"[Spotify OAuth] User {user_id} -> /me check error: {e}")
+    logger.info("Spotify connected for user %s", user_id)
 
     # Store tokens in database
     expires_at = datetime.now() + timedelta(seconds=tokens["expires_in"])
@@ -119,36 +109,43 @@ async def get_spotify_token(user: dict = Depends(get_current_user)):
     """Get user's Spotify access token (refreshes if expired)."""
     x_user_id = user["id"]
 
+    # Read the stored token, then release the connection — we must not hold a
+    # DB connection open across the network refresh below.
     with get_connection() as conn:
         row = conn.execute(
             "SELECT access_token, refresh_token, expires_at FROM spotify_tokens WHERE user_id = ?",
             (x_user_id,)
         ).fetchone()
 
-        if not row:
-            raise HTTPException(404, "Spotify not connected")
+    if not row:
+        raise HTTPException(404, "Spotify not connected")
 
-        # Check if token is expired or about to expire (within 5 minutes)
-        expires_at = datetime.fromisoformat(row["expires_at"])
-        if datetime.now() >= expires_at - timedelta(minutes=5):
-            # Refresh the token
-            try:
-                tokens = await spotify_oauth.refresh_token(row["refresh_token"])
-                new_expires_at = datetime.now() + timedelta(seconds=tokens["expires_in"])
-
-                conn.execute("""
-                    UPDATE spotify_tokens
-                    SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE user_id = ?
-                """, (tokens["access_token"], tokens["refresh_token"], new_expires_at, x_user_id))
-
-                return {"access_token": tokens["access_token"]}
-            except Exception as e:
-                # Token refresh failed, user needs to re-authenticate
-                conn.execute("DELETE FROM spotify_tokens WHERE user_id = ?", (x_user_id,))
-                raise HTTPException(401, "Token expired, please reconnect Spotify")
-
+    # Still valid (more than 5 minutes left) — return as-is.
+    expires_at = datetime.fromisoformat(row["expires_at"])
+    if datetime.now() < expires_at - timedelta(minutes=5):
         return {"access_token": row["access_token"]}
+
+    # Expired/expiring — refresh.
+    try:
+        tokens = await spotify_oauth.refresh_token(row["refresh_token"])
+    except Exception as e:
+        # Refresh failed (revoked/invalid refresh token): drop the dead row so
+        # the user re-authenticates. Done in its own committed transaction —
+        # raising inside the `with` would roll the delete back.
+        logger.warning("Spotify token refresh failed for user %s: %s", x_user_id, e)
+        with get_connection() as conn:
+            conn.execute("DELETE FROM spotify_tokens WHERE user_id = ?", (x_user_id,))
+        raise HTTPException(401, "Token expired, please reconnect Spotify")
+
+    new_expires_at = datetime.now() + timedelta(seconds=tokens["expires_in"])
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE spotify_tokens
+            SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        """, (tokens["access_token"], tokens["refresh_token"], new_expires_at, x_user_id))
+
+    return {"access_token": tokens["access_token"]}
 
 
 @router.get("/status")

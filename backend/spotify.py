@@ -28,7 +28,7 @@ class SpotifyClient:
         if not self.client_id or not self.client_secret:
             raise ValueError("Spotify credentials not configured.")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 "https://accounts.spotify.com/api/token",
                 data={"grant_type": "client_credentials"},
@@ -184,7 +184,7 @@ class SpotifyOAuth:
             f"{self.client_id}:{self.client_secret}".encode()
         ).decode()
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 "https://accounts.spotify.com/api/token",
                 data={
@@ -212,7 +212,7 @@ class SpotifyOAuth:
             f"{self.client_id}:{self.client_secret}".encode()
         ).decode()
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 "https://accounts.spotify.com/api/token",
                 data={

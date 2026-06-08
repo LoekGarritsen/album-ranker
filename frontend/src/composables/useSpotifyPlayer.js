@@ -82,6 +82,11 @@ export function useSpotifyPlayer() {
     try {
       const res = await fetch('/api/spotify/auth', { headers: getHeaders() })
       const data = await res.json()
+      // Remember where we are so the OAuth callback (which lands on "/") can
+      // send the user back to their room after connecting.
+      try {
+        localStorage.setItem('spotifyReturnPath', window.location.pathname + window.location.search)
+      } catch {}
       // Redirect to Spotify auth
       window.location.href = data.auth_url
     } catch (e) {
@@ -128,6 +133,15 @@ export function useSpotifyPlayer() {
   }
 
   async function initPlayer() {
+    // Already have a live player — don't create a second one (would register a
+    // duplicate device and duplicate event listeners).
+    if (player.value && isReady.value) return true
+    if (player.value) {
+      player.value.disconnect()
+      player.value = null
+      isReady.value = false
+    }
+
     const connected = await checkConnection()
     if (!connected) return false
 
@@ -141,7 +155,9 @@ export function useSpotifyPlayer() {
         name: 'Album Ranker',
         getOAuthToken: async (cb) => {
           const freshToken = await getAccessToken()
-          cb(freshToken)
+          // SDK requires the callback to be invoked. Passing '' instead of null
+          // lets it surface a clean authentication_error we already handle.
+          cb(freshToken || '')
         },
         volume: volume.value / 100
       })

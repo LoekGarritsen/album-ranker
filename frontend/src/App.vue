@@ -1,12 +1,12 @@
 <script setup>
 import { ref, onMounted, provide, computed } from 'vue'
-import { RouterView, RouterLink, useRoute } from 'vue-router'
+import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { Music2, User, ChevronDown, LogOut, Radio, Mail } from 'lucide-vue-next'
 import MiniPlayer from './components/MiniPlayer.vue'
 import { useSession } from './composables/useSession'
 import { useAuth } from './composables/useAuth'
 
-const { isInSession, toasts } = useSession()
+const { isInSession, toasts, showToast } = useSession()
 const { currentUser, ready, requestLink, restore, logout } = useAuth()
 
 const users = ref([])
@@ -19,6 +19,7 @@ const sending = ref(false)
 const loginError = ref('')
 
 const route = useRoute()
+const router = useRouter()
 // The magic-link landing page must render even while logged out.
 const isAuthRoute = computed(() => route.path.startsWith('/auth/verify'))
 const isAdmin = computed(() => !!currentUser.value?.is_admin)
@@ -56,7 +57,38 @@ function signOut() {
   users.value = []
 }
 
+// Surface the result of the Spotify OAuth round-trip. The backend callback
+// redirects to "/?spotify_connected=true" or "/?spotify_error=...".
+function handleSpotifyRedirect() {
+  const params = new URLSearchParams(window.location.search)
+  const connected = params.get('spotify_connected')
+  const err = params.get('spotify_error')
+  if (!connected && !err) return
+
+  if (connected) showToast('Spotify connected', 'success')
+  else showToast('Spotify connection failed. Please try again.', 'error')
+
+  // Strip the query params so a refresh doesn't re-trigger the toast.
+  params.delete('spotify_connected')
+  params.delete('spotify_error')
+
+  // Return the user to the room they connected from, if any.
+  let target = null
+  try {
+    target = localStorage.getItem('spotifyReturnPath')
+    localStorage.removeItem('spotifyReturnPath')
+  } catch {}
+
+  if (connected && target && target !== '/') {
+    router.replace(target)
+  } else {
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  }
+}
+
 onMounted(async () => {
+  handleSpotifyRedirect()
   await restore()
   if (currentUser.value) loadUsers()
 })
