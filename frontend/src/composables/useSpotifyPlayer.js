@@ -18,6 +18,7 @@ let sdkLoaded = false
 let previousState = null // Track previous state for end detection
 let sdkLoadPromise = null
 let positionInterval = null
+let deviceActivated = false // Transfer playback to this device only once
 
 // Load Spotify SDK script
 function loadSpotifySDK() {
@@ -155,6 +156,7 @@ export function useSpotifyPlayer() {
       player.value.addListener('not_ready', () => {
         isReady.value = false
         deviceId.value = null
+        deviceActivated = false // Re-transfer on next play
       })
 
       player.value.addListener('player_state_changed', (state) => {
@@ -227,14 +229,15 @@ export function useSpotifyPlayer() {
     })
   }
 
-  async function transferPlayback() {
-    if (!deviceId.value) return false
+  // Activate this device once. Re-transferring on every track change adds
+  // latency and is the main source of audible gaps between tracks.
+  async function ensureActiveDevice() {
+    if (deviceActivated || !deviceId.value) return deviceActivated
 
     const token = await getAccessToken()
     if (!token) return false
 
     try {
-      // Transfer playback to this device
       const res = await fetch('https://api.spotify.com/v1/me/player', {
         method: 'PUT',
         headers: {
@@ -252,6 +255,9 @@ export function useSpotifyPlayer() {
         return false
       }
 
+      // Small delay to let transfer settle (only paid once, on first play)
+      await new Promise(resolve => setTimeout(resolve, 200))
+      deviceActivated = true
       return true
     } catch (e) {
       console.error('Transfer playback error:', e)
@@ -259,7 +265,9 @@ export function useSpotifyPlayer() {
     }
   }
 
-  async function play(spotifyUri, positionMs = 0) {
+  // Shared playback request. Pass either a single-track `uris` body or a
+  // `context_uri` (+ optional offset) body for gapless album playback.
+  async function sendPlay(body) {
     if (!isReady.value || !deviceId.value) {
       error.value = 'Player not ready'
       return false
@@ -269,23 +277,15 @@ export function useSpotifyPlayer() {
     if (!token) return false
 
     try {
-      // First, ensure this device is active
-      await transferPlayback()
+      await ensureActiveDevice()
 
-      // Small delay to let transfer complete
-      await new Promise(resolve => setTimeout(resolve, 200))
-
-      // Now start playback
       const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId.value}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          uris: [spotifyUri],
-          position_ms: positionMs
-        })
+        body: JSON.stringify(body)
       })
 
       if (!res.ok && res.status !== 204) {
@@ -293,7 +293,6 @@ export function useSpotifyPlayer() {
         const reason = data.error?.reason || data.error?.message || `Status ${res.status}`
         console.error('Spotify play error:', data)
 
-        // Handle specific errors
         if (res.status === 403) {
           if (reason.includes('PREMIUM_REQUIRED')) {
             throw new Error('Spotify Premium required for playback')
@@ -310,6 +309,22 @@ export function useSpotifyPlayer() {
       console.error('Spotify playback failed:', e.message)
       return false
     }
+  }
+
+  // Play a single track (fallback when the album has no Spotify context).
+  async function play(spotifyUri, positionMs = 0) {
+    return sendPlay({ uris: [spotifyUri], position_ms: positionMs })
+  }
+
+  // Play an album/playlist as a context and let Spotify advance tracks
+  // natively. This gives the smoothest transitions the Web Playback SDK
+  // allows — the app must NOT re-issue play() on each track end, or the
+  // gapless transition is lost. Track advances are observed via
+  // player_state_changed (currentTrack) instead.
+  async function playContext(contextUri, offsetUri = null, positionMs = 0) {
+    const body = { context_uri: contextUri, position_ms: positionMs }
+    if (offsetUri) body.offset = { uri: offsetUri }
+    return sendPlay(body)
   }
 
   async function pause() {
@@ -387,6 +402,7 @@ export function useSpotifyPlayer() {
     disconnect,
     initPlayer,
     play,
+    playContext,
     pause,
     resume,
     seek,

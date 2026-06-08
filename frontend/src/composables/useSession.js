@@ -37,10 +37,27 @@ export function useSession() {
   const {
     isReady: spotifyReady,
     play: spotifyPlay,
+    playContext: spotifyPlayContext,
     pause: spotifyPause,
     resume: spotifyResume,
     seek: spotifySeek
   } = useSpotifyPlayer()
+
+  // Start Spotify playback for a track. When the album has a Spotify context,
+  // play it as an album context so Spotify advances tracks gaplessly. Falls
+  // back to single-track playback otherwise.
+  async function playTrackOnSpotify(track, positionMs = 0) {
+    if (!spotifyReady.value || !track?.spotify_id) return
+    if (album.value?.spotify_id) {
+      await spotifyPlayContext(
+        `spotify:album:${album.value.spotify_id}`,
+        `spotify:track:${track.spotify_id}`,
+        positionMs
+      )
+    } else {
+      await spotifyPlay(`spotify:track:${track.spotify_id}`, positionMs)
+    }
+  }
   function showToast(message, type = 'info') {
     const id = ++toastId
     toasts.value.push({ id, message, type })
@@ -74,8 +91,11 @@ export function useSession() {
   }
 
   function autoAdvanceToNext() {
-    // Advance to next track when current track ends
-    // This is the fallback for all users - Spotify users may get early advance from Session.vue watcher
+    // Advance to next track when current track ends.
+    // Spotify users in context mode let Spotify advance natively (gapless);
+    // the Session.vue currentTrack watcher mirrors that to the room. Only the
+    // local progress timer drives advance for non-Spotify users.
+    if (spotifyReady.value && album.value?.spotify_id) return
     const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
     if (trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
       // There's a next track, advance to it
@@ -452,16 +472,41 @@ export function useSession() {
         headers
       })
 
-      // Control Spotify if connected
-      if (spotifyReady.value && track?.spotify_id) {
-        await spotifyPlay(`spotify:track:${track.spotify_id}`, 0)
-      }
+      // Control Spotify if connected (album context for gapless playback)
+      await playTrackOnSpotify(track, 0)
 
       playbackPosition.value = 0
       isPlaying.value = true
       startProgressInterval()
     } catch (e) {
       console.error('Failed to start playback:', e)
+    }
+  }
+
+  // Spotify advanced to the next track on its own (gapless context playback).
+  // Mirror that to the room/server WITHOUT re-issuing Spotify playback —
+  // re-playing would restart the track and reintroduce the gap.
+  async function notifyTrackChange(trackId, currentUser) {
+    if (!session.value?.code) return
+    try {
+      const headers = {}
+      if (currentUser?.id) {
+        headers['X-User-Id'] = currentUser.id.toString()
+      }
+      await fetch(`/api/sessions/${session.value.code}/track?track_id=${trackId}&keep_playing=true`, {
+        method: 'POST',
+        headers
+      })
+      session.value.current_track_id = trackId
+      const track = album.value?.tracks?.find(t => t.id === trackId)
+      if (track) {
+        currentTrackDuration.value = track.duration_ms
+      }
+      playbackPosition.value = 0
+      isPlaying.value = true
+      startProgressInterval()
+    } catch (e) {
+      console.error('Failed to notify track change:', e)
     }
   }
 
@@ -564,7 +609,7 @@ export function useSession() {
         const track = currentTrack.value
         if (track?.spotify_id) {
           if (isPlaying.value) {
-            await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
+            await playTrackOnSpotify(track, playbackPosition.value)
           } else {
             await spotifyPause()
             // Only seek if we have a valid position
@@ -607,6 +652,7 @@ export function useSession() {
     joinSession,
     leaveSession,
     selectTrack,
+    notifyTrackChange,
     setAlbum,
     loadAlbumData,
     togglePlayback,

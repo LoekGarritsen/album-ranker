@@ -26,6 +26,7 @@ const {
   joinSession,
   leaveSession,
   selectTrack,
+  notifyTrackChange,
   setAlbum,
   togglePlayback,
   seekTo,
@@ -43,6 +44,7 @@ const {
   isConnected: spotifyConnected,
   isPaused: spotifyPaused,
   position: spotifyPosition,
+  currentTrack: spotifyCurrentTrack,
   error: spotifyError,
   trackEnded: spotifyTrackEnded,
   setUserId: setSpotifyUserId,
@@ -51,6 +53,7 @@ const {
   disconnect: disconnectSpotify,
   initPlayer: initSpotifyPlayer,
   play: spotifyPlay,
+  playContext: spotifyPlayContext,
   pause: spotifyPause,
   resume: spotifyResume,
   seek: spotifySeek,
@@ -97,6 +100,12 @@ const filteredAlbums = computed(() => {
 })
 
 const sessionCode = computed(() => route.params.code)
+
+// When connected to Spotify AND the album has a Spotify context, Spotify
+// plays the album gaplessly and advances tracks itself. In this mode the app
+// observes advances (spotifyCurrentTrack watcher) instead of driving each
+// track end, which is what kept reintroducing gaps.
+const spotifyContextMode = computed(() => spotifyReady.value && !!album.value?.spotify_id)
 
 const albumIsMultiDisc = computed(() => {
   if (!album.value?.tracks?.length) return false
@@ -322,9 +331,22 @@ async function autoAdvanceTrack() {
   }
 }
 
+// Spotify advanced to a new track on its own (gapless context playback).
+// Mirror it to the room without re-issuing playback (would restart the track
+// and reintroduce the gap). This replaces per-track-end driving in context mode.
+watch(() => spotifyCurrentTrack.value?.id, async (newSpotifyId, oldSpotifyId) => {
+  if (!spotifyContextMode.value || !newSpotifyId || newSpotifyId === oldSpotifyId) return
+  if (isSelectingTrack.value || isSyncing.value) return
+  const track = album.value?.tracks?.find(t => t.spotify_id === newSpotifyId)
+  if (!track || track.id === session.value?.current_track_id) return
+  await notifyTrackChange(track.id, currentUser.value)
+})
+
 // Watch for Spotify track end event (more reliable than position-based detection)
-// This fires directly from the SDK when a track naturally finishes
+// This fires directly from the SDK when a track naturally finishes.
+// Only used as fallback when NOT in context mode (album lacks a Spotify context).
 watch(spotifyTrackEnded, async (ended) => {
+  if (spotifyContextMode.value) return // Spotify drives advance natively
   if (ended && !isAutoAdvancing.value && !isSelectingTrack.value && isPlaying.value) {
     // Reset immediately to prevent double-firing
     spotifyTrackEnded.value = false
@@ -336,8 +358,9 @@ watch(spotifyTrackEnded, async (ended) => {
 watch(spotifyPosition, async (spotifyPos) => {
   if (!spotifyReady.value || isSyncing.value || isSelectingTrack.value) return
 
-  // Backup check for track end via position (in case trackEnded event didn't fire)
-  if (!isAutoAdvancing.value && isPlaying.value && currentTrackDuration.value > 0 && spotifyPos >= currentTrackDuration.value - 1500) {
+  // Backup check for track end via position (in case trackEnded event didn't fire).
+  // Skipped in context mode — Spotify advances natively, the currentTrack watcher syncs.
+  if (!spotifyContextMode.value && !isAutoAdvancing.value && isPlaying.value && currentTrackDuration.value > 0 && spotifyPos >= currentTrackDuration.value - 1500) {
     autoAdvanceTrack()
     return
   }
@@ -363,7 +386,15 @@ watch(isPlaying, async (roomIsPlaying, wasPlaying) => {
   // Room started playing - sync Spotify to play
   if (roomIsPlaying && !wasPlaying) {
     if (spotifyPaused.value) {
-      await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
+      // If Spotify already has this track loaded, resume in place to keep the
+      // gapless context. Only (re)start playback if it's a different/no track.
+      if (spotifyCurrentTrack.value?.id === track.spotify_id) {
+        await spotifyResume()
+      } else if (spotifyContextMode.value) {
+        await spotifyPlayContext(`spotify:album:${album.value.spotify_id}`, `spotify:track:${track.spotify_id}`, playbackPosition.value)
+      } else {
+        await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
+      }
     }
   }
   // Room paused - pause Spotify

@@ -224,8 +224,19 @@ def join_session(code: str, data: SessionJoin = None, user: dict = Depends(get_c
 
 
 @router.post("/{code}/track")
-async def update_session_track(code: str, track_id: int = Query(...), user: dict = Depends(get_current_user)):
-    """Update the current track in a session."""
+async def update_session_track(
+    code: str,
+    track_id: int = Query(...),
+    keep_playing: bool = Query(False),
+    user: dict = Depends(get_current_user),
+):
+    """Update the current track in a session.
+
+    Normally a track change resets to a paused state (manual track pick).
+    When `keep_playing` is set the room keeps playing without interruption —
+    used when Spotify advances tracks natively (gapless album playback), so the
+    room mirrors the advance without a pause/resume blip.
+    """
     x_user_id = user["id"]
     user_name = None
     with get_connection() as conn:
@@ -245,15 +256,15 @@ async def update_session_track(code: str, track_id: int = Query(...), user: dict
     if code in active_sessions:
         active_sessions[code]["current_track_id"] = track_id
         active_sessions[code]["playback_position"] = 0
-        active_sessions[code]["is_playing"] = False
-        active_sessions[code]["playback_started_at"] = None
+        active_sessions[code]["is_playing"] = keep_playing
+        active_sessions[code]["playback_started_at"] = time.time() if keep_playing else None
 
         await broadcast_to_session(code, {
             "type": "track_change",
             "track_id": track_id,
             "duration": track["duration_ms"] if track else 0,
             "position": 0,
-            "is_playing": False,
+            "is_playing": keep_playing,
             "changed_by": x_user_id,
             "changed_by_name": user_name
         })
