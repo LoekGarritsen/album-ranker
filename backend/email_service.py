@@ -29,6 +29,8 @@ async def send_magic_link(to_email: str, link: str) -> bool:
         style="display:inline-block;padding:12px 20px;background:#1DB954;
                color:#fff;text-decoration:none;border-radius:8px">
      Sign in</a></p>
+  <p style="color:#666;font-size:13px">Or paste this link into your browser:<br>
+     <a href="{link}" style="color:#1DB954;word-break:break-all">{link}</a></p>
   <p style="color:#666;font-size:13px">If you didn't request this, ignore this email.</p>
 </div>"""
 
