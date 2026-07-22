@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { X, Disc3, Music } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -17,14 +17,24 @@ const comment = ref('')
 const existingRanking = computed(() => {
   if (!props.currentUser) return null
   const rankings = props.type === 'album' ? props.album.album_rankings : props.item.rankings
-  return rankings?.find(r => r.user_id === props.currentUser.id)
+  // Rankings include placeholder entries (score null) for every user
+  return rankings?.find(r => r.user_id === props.currentUser.id && r.score != null)
 })
+
+function handleKeydown(e) {
+  if (e.key === 'Escape') emit('close')
+}
 
 onMounted(() => {
   if (existingRanking.value) {
     score.value = existingRanking.value.score || 5.0
     comment.value = existingRanking.value.comment || ''
   }
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
 })
 
 function submit() {
@@ -106,7 +116,23 @@ const displayScore = computed(() => {
           <div class="text-sm text-slate-400 mt-1">{{ getScoreLabel(score) }}</div>
         </div>
 
-        <!-- Slider -->
+        <!-- Quick score buttons -->
+        <div class="grid grid-cols-10 gap-1 mb-3">
+          <button
+            v-for="n in 10"
+            :key="n"
+            type="button"
+            @click="score = n"
+            class="py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors"
+            :class="Math.round(parseFloat(score)) === n
+              ? 'bg-accent-primary text-black'
+              : 'bg-white/5 hover:bg-white/15 text-slate-300'"
+          >
+            {{ n }}
+          </button>
+        </div>
+
+        <!-- Slider (fine-tune) -->
         <div class="mb-6">
           <input
             v-model="score"
@@ -115,6 +141,7 @@ const displayScore = computed(() => {
             max="10"
             step="0.1"
             class="w-full"
+            aria-label="Score"
           />
           <div class="flex justify-between text-xs text-slate-500 mt-2">
             <span>1.0</span>

@@ -15,6 +15,8 @@ const sessionUser = ref(null) // Store current user for auto-advance
 let progressInterval = null
 let pingInterval = null
 let toastId = 0
+let reconnectTimer = null
+let reconnectAttempts = 0
 
 // Track if we're actively in a session
 const isInSession = computed(() => !!session.value?.code)
@@ -36,12 +38,22 @@ export function useSession() {
   // Get Spotify player (singleton)
   const {
     isReady: spotifyReady,
+    isPaused: spotifyPaused,
+    currentTrack: spotifyPlayerTrack,
     play: spotifyPlay,
     playContext: spotifyPlayContext,
     pause: spotifyPause,
     resume: spotifyResume,
     seek: spotifySeek
   } = useSpotifyPlayer()
+
+  // Is this track the one loaded in the local Spotify player? Relinked tracks
+  // (market availability) report a different id; linked_from has the original.
+  function spotifyHasTrack(track) {
+    const loaded = spotifyPlayerTrack.value
+    if (!loaded || !track?.spotify_id) return false
+    return loaded.id === track.spotify_id || loaded.linked_from?.id === track.spotify_id
+  }
 
   // Start Spotify playback for a track. When the album has a Spotify context,
   // play it as an album context so Spotify advances tracks gaplessly. Falls
@@ -122,7 +134,11 @@ export function useSession() {
   }
 
   function connectWebSocket(code, userId, currentUser, onMessage) {
-    // Clear any existing connection
+    // Clear any existing connection and pending reconnect
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     if (ws.value) {
       ws.value.close()
     }
@@ -137,9 +153,10 @@ export function useSession() {
     const authToken = localStorage.getItem('authToken') || ''
     const wsUrl = `${protocol}//${window.location.host}/api/sessions/${code}/ws?token=${encodeURIComponent(authToken)}`
 
-    ws.value = new WebSocket(wsUrl)
+    const socket = new WebSocket(wsUrl)
+    ws.value = socket
 
-    ws.value.onmessage = (event) => {
+    socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
         handleWebSocketMessage(data, currentUser, onMessage)
@@ -148,7 +165,8 @@ export function useSession() {
       }
     }
 
-    ws.value.onopen = () => {
+    socket.onopen = () => {
+      reconnectAttempts = 0
       // Ping every 10 seconds for more responsive sync (room is source of truth)
       pingInterval = setInterval(() => {
         if (ws.value?.readyState === WebSocket.OPEN) {
@@ -157,20 +175,26 @@ export function useSession() {
       }, 10000)
     }
 
-    ws.value.onclose = () => {
+    socket.onclose = () => {
+      // A superseded socket (we opened a newer one) must not schedule
+      // reconnects — that spawned duplicate connections.
+      if (ws.value !== socket) return
       if (pingInterval) {
         clearInterval(pingInterval)
         pingInterval = null
       }
-      // Attempt to reconnect if still in session
-      setTimeout(() => {
-        if (session.value?.code === code) {
+      // Reconnect with exponential backoff + jitter
+      const delay = Math.min(15000, 1000 * 2 ** reconnectAttempts) + Math.random() * 500
+      reconnectAttempts++
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        if (session.value?.code === code && ws.value === socket) {
           connectWebSocket(code, userId, currentUser, onMessage)
         }
-      }, 3000)
+      }, delay)
     }
 
-    ws.value.onerror = (error) => {
+    socket.onerror = (error) => {
       console.error('WebSocket error:', error)
     }
   }
@@ -201,7 +225,7 @@ export function useSession() {
         break
       }
 
-      case 'track_change':
+      case 'track_change': {
         stopProgressInterval()
         if (session.value) {
           session.value.current_track_id = data.track_id
@@ -210,29 +234,55 @@ export function useSession() {
         playbackPosition.value = data.position || 0
         isPlaying.value = data.is_playing || false
 
-        if (data.changed_by && data.changed_by !== currentUser?.id) {
+        const remoteChange = data.changed_by && data.changed_by !== currentUser?.id
+        if (remoteChange) {
           const trackName = album.value?.tracks?.find(t => t.id === data.track_id)?.name
           showToast(`${data.changed_by_name || 'Someone'} selected "${trackName || 'a track'}"`)
+        }
+
+        // Remote manual pick: start Spotify here (single ordered path — the
+        // old pause->play watcher flip raced and killed fresh playback).
+        // keep_playing = native context advance: our Spotify advances itself.
+        if (remoteChange && data.is_playing && !data.keep_playing && spotifyReady.value) {
+          const track = album.value?.tracks?.find(t => t.id === data.track_id)
+          if (track?.spotify_id) {
+            playTrackOnSpotify(track, 0)
+          }
         }
 
         if (isPlaying.value) {
           startProgressInterval()
         }
         break
+      }
 
-      case 'playback':
+      case 'playback': {
         stopProgressInterval()
         playbackPosition.value = data.position || 0
+        const track = currentTrack.value
 
         if (data.action === 'play') {
           isPlaying.value = true
+          // Sync Spotify here (ordered with the state change) instead of via
+          // a watcher racing other broadcasts.
+          if (spotifyReady.value && track?.spotify_id) {
+            if (spotifyHasTrack(track)) {
+              // Right track loaded — resume in place to keep the gapless context
+              if (spotifyPaused.value) spotifyResume()
+            } else {
+              playTrackOnSpotify(track, data.position || 0)
+            }
+          }
           startProgressInterval()
         } else if (data.action === 'pause') {
           isPlaying.value = false
+          if (spotifyReady.value && !spotifyPaused.value) {
+            spotifyPause()
+          }
         } else if (data.action === 'seek') {
-          // Mirror remote seeks into Spotify — context-mode clients otherwise
-          // ignore them (their position mirror overwrites the room position).
-          if (spotifyReady.value) {
+          // Mirror remote seeks into Spotify; skip our own echo — we already
+          // seeked optimistically, a second seek would stutter playback.
+          if (spotifyReady.value && data.by !== currentUser?.id) {
             spotifySeek(data.position || 0)
           }
           // Keep current playing state, just update position
@@ -241,6 +291,7 @@ export function useSession() {
           }
         }
         break
+      }
 
       case 'pong': {
         // In context mode Spotify's clock is mirrored into the room locally;
@@ -253,12 +304,24 @@ export function useSession() {
             playbackPosition.value = data.position
           }
         }
-        // Also sync play/pause state from server
+        // Also sync play/pause state from server (covers a missed broadcast);
+        // bring Spotify along so audio matches the recovered room state.
         if (data.is_playing !== undefined && data.is_playing !== isPlaying.value) {
           isPlaying.value = data.is_playing
+          const track = currentTrack.value
           if (isPlaying.value) {
+            if (spotifyReady.value && track?.spotify_id) {
+              if (spotifyHasTrack(track)) {
+                if (spotifyPaused.value) spotifyResume()
+              } else {
+                playTrackOnSpotify(track, playbackPosition.value)
+              }
+            }
             startProgressInterval()
           } else {
+            if (spotifyReady.value && !spotifyPaused.value) {
+              spotifyPause()
+            }
             stopProgressInterval()
           }
         }
@@ -303,6 +366,27 @@ export function useSession() {
             if (data.user_id !== currentUser?.id) {
               showToast(`${data.user_name} rated "${track.name}" ${data.score.toFixed(1)}`, 'success')
             }
+          }
+        }
+        break
+
+      case 'album_rating':
+        if (album.value?.id === data.album_id) {
+          if (!album.value.album_rankings) album.value.album_rankings = []
+          const idx = album.value.album_rankings.findIndex(r => r.user_id === data.user_id)
+          const entry = {
+            user_id: data.user_id,
+            user_name: data.user_name,
+            score: data.score,
+            comment: data.comment
+          }
+          if (idx >= 0) {
+            album.value.album_rankings[idx] = entry
+          } else {
+            album.value.album_rankings.push(entry)
+          }
+          if (data.user_id !== currentUser?.id) {
+            showToast(`${data.user_name} rated the album ${data.score.toFixed(1)}`, 'success')
           }
         }
         break
@@ -428,6 +512,10 @@ export function useSession() {
 
   async function leaveSession() {
     stopProgressInterval()
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     if (pingInterval) {
       clearInterval(pingInterval)
       pingInterval = null
@@ -453,54 +541,27 @@ export function useSession() {
       if (currentUser?.id) {
         headers['X-User-Id'] = currentUser.id.toString()
       }
-      await fetch(`/api/sessions/${session.value.code}/track?track_id=${trackId}`, {
-        method: 'POST',
-        headers
-      })
+      // Optimistic local state; play=true makes track+playback one atomic
+      // broadcast (the old track/seek/play triplet raced on remote clients).
+      stopProgressInterval()
       session.value.current_track_id = trackId
       const track = album.value?.tracks?.find(t => t.id === trackId)
       if (track) {
         currentTrackDuration.value = track.duration_ms
       }
       playbackPosition.value = 0
-      isPlaying.value = false
-      stopProgressInterval()
-
-      // Auto-play from beginning
-      await new Promise(resolve => setTimeout(resolve, 100))
-      await startPlaybackFromBeginning(currentUser, track)
-    } catch (e) {
-      console.error('Failed to select track:', e)
-    }
-  }
-
-  async function startPlaybackFromBeginning(currentUser, track) {
-    if (!session.value?.code) return
-
-    try {
-      const headers = {}
-      if (currentUser?.id) {
-        headers['X-User-Id'] = currentUser.id.toString()
-      }
-
-      // Send play action with position 0
-      await fetch(`/api/sessions/${session.value.code}/playback?action=seek&position=0`, {
-        method: 'POST',
-        headers
-      })
-      await fetch(`/api/sessions/${session.value.code}/playback?action=play`, {
-        method: 'POST',
-        headers
-      })
-
-      // Control Spotify if connected (album context for gapless playback)
-      await playTrackOnSpotify(track, 0)
-
-      playbackPosition.value = 0
       isPlaying.value = true
       startProgressInterval()
+
+      await Promise.all([
+        fetch(`/api/sessions/${session.value.code}/track?track_id=${trackId}&play=true`, {
+          method: 'POST',
+          headers
+        }),
+        playTrackOnSpotify(track, 0)
+      ])
     } catch (e) {
-      console.error('Failed to start playback:', e)
+      console.error('Failed to select track:', e)
     }
   }
 
@@ -545,8 +606,7 @@ export function useSession() {
         method: 'POST',
         headers
       })
-      // State will be updated via WebSocket broadcast
-      // Spotify will be synced via the isPlaying watcher in Session.vue
+      // State + Spotify sync happen via the WebSocket 'playback' broadcast
     } catch (e) {
       console.error('Failed to toggle playback:', e)
     }

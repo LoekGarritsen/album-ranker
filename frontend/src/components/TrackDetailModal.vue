@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { X, Star, Loader2, MessageCircle } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -54,7 +54,18 @@ function handleRate() {
   }
 }
 
-onMounted(loadTrack)
+function handleKeydown(e) {
+  if (e.key === 'Escape') emit('close')
+}
+
+onMounted(() => {
+  loadTrack()
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw, Info, Disc3, Search, X } from 'lucide-vue-next'
+import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw, Info, Disc3, Search, X, BarChart3, TrendingUp, TrendingDown } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
@@ -52,10 +52,7 @@ const {
   connect: connectSpotify,
   disconnect: disconnectSpotify,
   initPlayer: initSpotifyPlayer,
-  play: spotifyPlay,
-  playContext: spotifyPlayContext,
   pause: spotifyPause,
-  resume: spotifyResume,
   seek: spotifySeek,
   startPositionTracking,
   stopPositionTracking,
@@ -105,6 +102,74 @@ const sessionCode = computed(() => route.params.code)
 // gaplessly and advances tracks itself; the app observes advances
 // (spotifyCurrentTrack watcher) instead of driving each track end.
 const spotifyContextMode = computed(() => spotifyReady.value && !!album.value?.spotify_id)
+
+// --- Live session stats (computed from rankings already in memory) ---
+
+function getTrackAvg(track) {
+  const scored = (track.rankings || []).filter(r => r.score != null)
+  if (!scored.length) return null
+  return scored.reduce((sum, r) => sum + r.score, 0) / scored.length
+}
+
+const myRatedCount = computed(() => {
+  if (!album.value?.tracks || !currentUser.value) return 0
+  return album.value.tracks.filter(t =>
+    t.rankings?.some(r => r.user_id === currentUser.value.id && r.score != null)
+  ).length
+})
+
+const totalTracks = computed(() => album.value?.tracks?.length || 0)
+
+const myAlbumRanking = computed(() =>
+  album.value?.album_rankings?.find(r => r.user_id === currentUser.value?.id && r.score != null) || null
+)
+
+const groupAlbumAvg = computed(() => {
+  const scores = (album.value?.album_rankings || []).filter(r => r.score != null).map(r => r.score)
+  if (!scores.length) return null
+  return scores.reduce((a, b) => a + b, 0) / scores.length
+})
+
+const groupTrackAvg = computed(() => {
+  const scores = (album.value?.tracks || []).flatMap(t =>
+    (t.rankings || []).filter(r => r.score != null).map(r => r.score)
+  )
+  if (!scores.length) return null
+  return scores.reduce((a, b) => a + b, 0) / scores.length
+})
+
+// Per-user running average across this album's tracks
+const userTrackStats = computed(() => {
+  const map = new Map()
+  for (const t of album.value?.tracks || []) {
+    for (const r of t.rankings || []) {
+      if (r.score == null) continue
+      const entry = map.get(r.user_id) || { user_id: r.user_id, user_name: r.user_name, sum: 0, count: 0 }
+      entry.sum += r.score
+      entry.count++
+      map.set(r.user_id, entry)
+    }
+  }
+  return [...map.values()]
+    .map(e => ({ ...e, avg: e.sum / e.count }))
+    .sort((a, b) => b.count - a.count || b.avg - a.avg)
+})
+
+const ratedTrackAverages = computed(() =>
+  (album.value?.tracks || [])
+    .map(t => ({ track: t, avg: getTrackAvg(t) }))
+    .filter(x => x.avg != null)
+)
+
+const bestTrack = computed(() => {
+  if (!ratedTrackAverages.value.length) return null
+  return ratedTrackAverages.value.reduce((a, b) => (b.avg > a.avg ? b : a))
+})
+
+const worstTrack = computed(() => {
+  if (ratedTrackAverages.value.length < 2) return null
+  return ratedTrackAverages.value.reduce((a, b) => (b.avg < a.avg ? b : a))
+})
 
 const albumIsMultiDisc = computed(() => {
   if (!album.value?.tracks?.length) return false
@@ -259,6 +324,11 @@ function openTrackRating(track) {
   ratingModal.value = { show: true, type: 'track', item: track, album: album.value }
 }
 
+function openAlbumRating() {
+  if (!album.value) return
+  ratingModal.value = { show: true, type: 'album', item: album.value, album: album.value }
+}
+
 function closeRating() {
   ratingModal.value = { show: false, type: null, item: null, album: null }
 }
@@ -277,19 +347,25 @@ function handleTrackDetailRate(track) {
 }
 
 async function submitRating(data) {
-  const res = await fetch(`/api/rankings/track?session_code=${sessionCode.value}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      track_id: ratingModal.value.item.id,
-      user_id: currentUser.value.id,
-      score: data.score,
-      comment: data.comment || null
-    })
-  })
+  const isAlbum = ratingModal.value.type === 'album'
+  const body = isAlbum
+    ? { album_id: album.value.id, score: data.score, comment: data.comment || null }
+    : { track_id: ratingModal.value.item.id, score: data.score, comment: data.comment || null }
 
-  if (res.ok) {
-    closeRating()
+  try {
+    const res = await fetch(`/api/rankings/${isAlbum ? 'album' : 'track'}?session_code=${sessionCode.value}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+
+    if (res.ok) {
+      closeRating()
+    } else {
+      showToast('Failed to save rating', 'error')
+    }
+  } catch (e) {
+    showToast('Failed to save rating', 'error')
   }
 }
 
@@ -396,35 +472,9 @@ watch(spotifyPosition, async (spotifyPos) => {
   }
 })
 
-// Sync Spotify player when room playback state changes (e.g., another user plays/pauses)
-watch(isPlaying, async (roomIsPlaying, wasPlaying) => {
-  // Skip if we're actively selecting a track - that handles Spotify directly
-  if (!spotifyReady.value || isSyncing.value || isSelectingTrack.value) return
-
-  const track = currentTrack.value
-  if (!track?.spotify_id) return
-
-  // Room started playing - sync Spotify to play
-  if (roomIsPlaying && !wasPlaying) {
-    if (spotifyPaused.value) {
-      // If Spotify already has this track loaded, resume in place to keep the
-      // gapless context. Only (re)start playback if it's a different/no track.
-      if (spotifyCurrentTrack.value?.id === track.spotify_id) {
-        await spotifyResume()
-      } else if (spotifyContextMode.value) {
-        await spotifyPlayContext(`spotify:album:${album.value.spotify_id}`, `spotify:track:${track.spotify_id}`, playbackPosition.value)
-      } else {
-        await spotifyPlay(`spotify:track:${track.spotify_id}`, playbackPosition.value)
-      }
-    }
-  }
-  // Room paused - pause Spotify
-  else if (!roomIsPlaying && wasPlaying) {
-    if (!spotifyPaused.value) {
-      await spotifyPause()
-    }
-  }
-})
+// NOTE: Spotify play/pause sync now happens inside useSession's WebSocket
+// handlers, ordered with the state change — a watcher here raced successive
+// broadcasts (late pause() killed a fresh play(), replaying/stopping tracks).
 
 // Spotify became ready while the room is already playing (joined a live
 // room) — sync to the room instead of sitting silent until a manual sync.
@@ -450,12 +500,22 @@ async function handleSpotifyConnect() {
   }
 }
 
-onMounted(loadSession)
+function handleKeydown(e) {
+  if (e.key === 'Escape' && showAlbumPicker.value) {
+    closeAlbumPicker()
+  }
+}
+
+onMounted(() => {
+  loadSession()
+  window.addEventListener('keydown', handleKeydown)
+})
 
 onUnmounted(() => {
   // Don't cleanup session - keep it running in background
   // Only cleanup Spotify tracking for this view
   stopPositionTracking()
+  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
@@ -505,6 +565,15 @@ onUnmounted(() => {
               >
                 <Check v-if="copied" class="w-5 h-5 text-green-400" />
                 <Copy v-else class="w-5 h-5" />
+              </button>
+              <button
+                v-if="album"
+                @click="openAlbumRating"
+                class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px]"
+                :class="myAlbumRanking ? 'text-yellow-400' : ''"
+              >
+                <Star class="w-4 h-4" :class="myAlbumRanking ? 'fill-yellow-400' : ''" />
+                {{ myAlbumRanking ? `Album: ${myAlbumRanking.score.toFixed(1)}` : 'Rate Album' }}
               </button>
               <button
                 @click="openAlbumPicker"
@@ -625,95 +694,117 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Live Album Stats -->
+      <div v-if="hasAlbum && album" class="glass p-4 mb-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <BarChart3 class="w-5 h-5 text-accent-primary" />
+            <span class="font-medium">Album So Far</span>
+          </div>
+          <div v-if="groupAlbumAvg != null || groupTrackAvg != null" class="text-right">
+            <span class="text-xs text-slate-500 mr-2">{{ groupAlbumAvg != null ? 'album avg' : 'track avg' }}</span>
+            <span class="text-xl font-heading font-bold" :class="getScoreColor(groupAlbumAvg ?? groupTrackAvg)">
+              {{ (groupAlbumAvg ?? groupTrackAvg).toFixed(1) }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Your rating progress -->
+        <div class="mb-3">
+          <div class="flex items-center justify-between text-sm mb-1.5">
+            <span class="text-slate-400">Your track ratings</span>
+            <span class="font-medium" :class="myRatedCount === totalTracks ? 'text-green-400' : 'text-slate-300'">
+              {{ myRatedCount }}/{{ totalTracks }}
+            </span>
+          </div>
+          <div class="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div
+              class="h-full bg-accent-primary rounded-full transition-all duration-300"
+              :style="{ width: totalTracks ? `${(myRatedCount / totalTracks) * 100}%` : '0%' }"
+            ></div>
+          </div>
+          <button
+            v-if="myRatedCount === totalTracks && totalTracks > 0 && !myAlbumRanking"
+            @click="openAlbumRating"
+            class="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors text-sm"
+          >
+            <Star class="w-4 h-4" />
+            All tracks rated — rate the album!
+          </button>
+        </div>
+
+        <!-- Per-listener averages -->
+        <div v-if="userTrackStats.length" class="flex flex-wrap gap-2 mb-3">
+          <div
+            v-for="stat in userTrackStats"
+            :key="stat.user_id"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm bg-white/10"
+            :class="{ 'border border-accent-primary/50 bg-accent-primary/10': stat.user_id === currentUser?.id }"
+          >
+            <span class="text-slate-300">{{ stat.user_name?.split(' ')[0] }}</span>
+            <span class="font-heading font-bold" :class="getScoreColor(stat.avg)">{{ stat.avg.toFixed(1) }}</span>
+            <span class="text-xs text-slate-500">({{ stat.count }})</span>
+          </div>
+        </div>
+
+        <!-- Best / worst track so far -->
+        <div v-if="bestTrack" class="space-y-1.5 text-sm">
+          <div class="flex items-center gap-2 min-w-0">
+            <TrendingUp class="w-4 h-4 text-green-400 flex-shrink-0" />
+            <span class="truncate text-slate-300">{{ bestTrack.track.name }}</span>
+            <span class="font-heading font-bold ml-auto flex-shrink-0" :class="getScoreColor(bestTrack.avg)">{{ bestTrack.avg.toFixed(1) }}</span>
+          </div>
+          <div v-if="worstTrack && worstTrack.track.id !== bestTrack.track.id" class="flex items-center gap-2 min-w-0">
+            <TrendingDown class="w-4 h-4 text-red-400 flex-shrink-0" />
+            <span class="truncate text-slate-300">{{ worstTrack.track.name }}</span>
+            <span class="font-heading font-bold ml-auto flex-shrink-0" :class="getScoreColor(worstTrack.avg)">{{ worstTrack.avg.toFixed(1) }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Track List (only when album is selected) -->
       <div v-if="hasAlbum && album" class="glass overflow-hidden">
-        <template v-if="albumIsMultiDisc">
-          <template v-for="item in groupedTracks" :key="item.type === 'disc' ? `disc-${item.disc_number}` : item.track.id">
-            <div v-if="item.type === 'disc'" class="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5">
-              <Disc3 class="w-3.5 h-3.5 text-slate-400" />
-              <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Disc {{ item.disc_number }}</span>
-            </div>
-            <div
-              v-else
-              @click="handleSelectTrack(item.track.id)"
-              class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-all duration-150 border-b border-white/5 last:border-0"
-              :class="session.current_track_id === item.track.id
-                ? 'bg-accent-primary/10 border-l-2 border-l-accent-primary'
-                : 'hover:bg-white/5 border-l-2 border-l-transparent'"
-            >
-              <div class="w-6 sm:w-8 text-center flex-shrink-0">
-                <div v-if="session.current_track_id === item.track.id && isPlaying" class="flex items-center justify-center gap-0.5">
-                  <span class="w-1 h-3 bg-accent-primary rounded-full animate-pulse"></span>
-                  <span class="w-1 h-4 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.2s"></span>
-                  <span class="w-1 h-2 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.4s"></span>
-                </div>
-                <Play
-                  v-else-if="session.current_track_id === item.track.id"
-                  class="w-4 h-4 text-accent-primary mx-auto"
-                />
-                <span v-else class="text-xs sm:text-sm text-slate-500">{{ item.track.track_number }}</span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <p class="truncate text-sm sm:text-base" :class="session.current_track_id === item.track.id ? 'text-accent-primary font-medium' : ''">
-                  {{ item.track.name }}
-                </p>
-                <p class="text-xs text-slate-500">{{ formatDuration(item.track.duration_ms) }}</p>
-              </div>
-              <div class="hidden sm:flex items-center gap-3">
-                <div v-for="ranking in item.track.rankings" :key="ranking.user_id" class="text-center">
-                  <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
-                  <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
-                    {{ ranking.score?.toFixed(1) || '-' }}
-                  </div>
-                </div>
-              </div>
-              <button
-                @click.stop="openTrackDetail(item.track)"
-                class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
-                title="Track info"
-              >
-                <Info class="w-4 h-4 text-slate-400" />
-              </button>
-              <button
-                @click.stop="openTrackRating(item.track)"
-                class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
-              >
-                <Star class="w-3 h-3" />
-                <span class="hidden sm:inline">{{ getUserRanking(item.track.rankings)?.score?.toFixed(1) || 'Rate' }}</span>
-              </button>
-            </div>
-          </template>
-        </template>
-        <template v-else>
+        <template v-for="item in groupedTracks" :key="item.type === 'disc' ? `disc-${item.disc_number}` : item.track.id">
+          <div v-if="item.type === 'disc' && albumIsMultiDisc" class="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5">
+            <Disc3 class="w-3.5 h-3.5 text-slate-400" />
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Disc {{ item.disc_number }}</span>
+          </div>
           <div
-            v-for="track in album.tracks"
-            :key="track.id"
-            @click="handleSelectTrack(track.id)"
+            v-else-if="item.type === 'track'"
+            @click="handleSelectTrack(item.track.id)"
             class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-all duration-150 border-b border-white/5 last:border-0"
-            :class="session.current_track_id === track.id
+            :class="session.current_track_id === item.track.id
               ? 'bg-accent-primary/10 border-l-2 border-l-accent-primary'
               : 'hover:bg-white/5 border-l-2 border-l-transparent'"
           >
             <div class="w-6 sm:w-8 text-center flex-shrink-0">
-              <div v-if="session.current_track_id === track.id && isPlaying" class="flex items-center justify-center gap-0.5">
+              <div v-if="session.current_track_id === item.track.id && isPlaying" class="flex items-center justify-center gap-0.5">
                 <span class="w-1 h-3 bg-accent-primary rounded-full animate-pulse"></span>
                 <span class="w-1 h-4 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.2s"></span>
                 <span class="w-1 h-2 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.4s"></span>
               </div>
               <Play
-                v-else-if="session.current_track_id === track.id"
+                v-else-if="session.current_track_id === item.track.id"
                 class="w-4 h-4 text-accent-primary mx-auto"
               />
-              <span v-else class="text-xs sm:text-sm text-slate-500">{{ track.track_number }}</span>
+              <span v-else class="text-xs sm:text-sm text-slate-500">{{ item.track.track_number }}</span>
             </div>
             <div class="flex-1 min-w-0">
-              <p class="truncate text-sm sm:text-base" :class="session.current_track_id === track.id ? 'text-accent-primary font-medium' : ''">
-                {{ track.name }}
+              <p class="truncate text-sm sm:text-base" :class="session.current_track_id === item.track.id ? 'text-accent-primary font-medium' : ''">
+                {{ item.track.name }}
               </p>
-              <p class="text-xs text-slate-500">{{ formatDuration(track.duration_ms) }}</p>
+              <p class="text-xs text-slate-500">{{ formatDuration(item.track.duration_ms) }}</p>
             </div>
+            <!-- Mobile: group average -->
+            <div v-if="getTrackAvg(item.track) != null" class="sm:hidden text-center flex-shrink-0">
+              <div class="text-[10px] text-slate-500">avg</div>
+              <div class="font-heading font-bold text-sm" :class="getScoreColor(getTrackAvg(item.track))">
+                {{ getTrackAvg(item.track).toFixed(1) }}
+              </div>
+            </div>
+            <!-- Desktop: per-user scores -->
             <div class="hidden sm:flex items-center gap-3">
-              <div v-for="ranking in track.rankings" :key="ranking.user_id" class="text-center">
+              <div v-for="ranking in item.track.rankings" :key="ranking.user_id" class="text-center">
                 <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
                 <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
                   {{ ranking.score?.toFixed(1) || '-' }}
@@ -721,18 +812,20 @@ onUnmounted(() => {
               </div>
             </div>
             <button
-              @click.stop="openTrackDetail(track)"
+              @click.stop="openTrackDetail(item.track)"
               class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
               title="Track info"
+              aria-label="Track info"
             >
               <Info class="w-4 h-4 text-slate-400" />
             </button>
             <button
-              @click.stop="openTrackRating(track)"
+              @click.stop="openTrackRating(item.track)"
               class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
+              :aria-label="getUserRanking(item.track.rankings)?.score != null ? 'Update your rating' : 'Rate this track'"
             >
-              <Star class="w-3 h-3" />
-              <span class="hidden sm:inline">{{ getUserRanking(track.rankings)?.score?.toFixed(1) || 'Rate' }}</span>
+              <Star class="w-3 h-3" :class="getUserRanking(item.track.rankings)?.score != null ? 'fill-yellow-400 text-yellow-400' : ''" />
+              <span>{{ getUserRanking(item.track.rankings)?.score?.toFixed(1) || 'Rate' }}</span>
             </button>
           </div>
         </template>

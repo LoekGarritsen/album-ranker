@@ -29,7 +29,7 @@ async def broadcast_to_session(code: str, message: dict):
 
 
 @router.post("/rankings/album")
-def submit_album_ranking(ranking: AlbumRankingCreate, user: dict = Depends(get_current_user)):
+async def submit_album_ranking(ranking: AlbumRankingCreate, session_code: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
     """Submit or update an album rating (always attributed to the caller)."""
     user_id = user["id"]
     with get_connection() as conn:
@@ -43,7 +43,18 @@ def submit_album_ranking(ranking: AlbumRankingCreate, user: dict = Depends(get_c
             DO UPDATE SET score = excluded.score, comment = excluded.comment, ranked_at = CURRENT_TIMESTAMP
         """, (ranking.album_id, user_id, ranking.score, ranking.comment))
 
-        return {"ok": True}
+    # Broadcast rating to session if provided
+    if session_code and session_code in active_sessions:
+        await broadcast_to_session(session_code, {
+            "type": "album_rating",
+            "album_id": ranking.album_id,
+            "user_id": user_id,
+            "user_name": user["name"],
+            "score": ranking.score,
+            "comment": ranking.comment
+        })
+
+    return {"ok": True}
 
 
 @router.post("/rankings/track")
