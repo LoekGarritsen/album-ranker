@@ -101,10 +101,9 @@ const filteredAlbums = computed(() => {
 
 const sessionCode = computed(() => route.params.code)
 
-// When connected to Spotify AND the album has a Spotify context, Spotify
-// plays the album gaplessly and advances tracks itself. In this mode the app
-// observes advances (spotifyCurrentTrack watcher) instead of driving each
-// track end, which is what kept reintroducing gaps.
+// Spotify connected + album has a Spotify context: Spotify plays the album
+// gaplessly and advances tracks itself; the app observes advances
+// (spotifyCurrentTrack watcher) instead of driving each track end.
 const spotifyContextMode = computed(() => spotifyReady.value && !!album.value?.spotify_id)
 
 const albumIsMultiDisc = computed(() => {
@@ -226,12 +225,8 @@ async function handleTogglePlayback() {
 }
 
 async function handleSeekTo(percent) {
+  // seekTo already seeks Spotify when connected
   await seekTo(percent, currentUser.value)
-
-  if (spotifyReady.value) {
-    const position = Math.floor((percent / 100) * currentTrackDuration.value)
-    await spotifySeek(position)
-  }
 }
 
 function handleProgressClick(event) {
@@ -337,8 +332,20 @@ async function autoAdvanceTrack() {
 watch(() => spotifyCurrentTrack.value?.id, async (newSpotifyId, oldSpotifyId) => {
   if (!spotifyContextMode.value || !newSpotifyId || newSpotifyId === oldSpotifyId) return
   if (isSelectingTrack.value || isSyncing.value) return
-  const track = album.value?.tracks?.find(t => t.spotify_id === newSpotifyId)
-  if (!track || track.id === session.value?.current_track_id) return
+  // Relinked tracks (market availability) report a different id than the
+  // stored catalog id; linked_from carries the original.
+  const linkedId = spotifyCurrentTrack.value?.linked_from?.id
+  const track = album.value?.tracks?.find(
+    t => t.spotify_id === newSpotifyId || (linkedId && t.spotify_id === linkedId)
+  )
+  if (!track) {
+    // Spotify moved past the album (autoplay/recommendations) — stop instead
+    // of playing foreign tracks while the UI still shows the album.
+    await spotifyPause()
+    if (isPlaying.value) await handleTogglePlayback()
+    return
+  }
+  if (track.id === session.value?.current_track_id) return
   await notifyTrackChange(track.id, currentUser.value)
 })
 
@@ -346,21 +353,35 @@ watch(() => spotifyCurrentTrack.value?.id, async (newSpotifyId, oldSpotifyId) =>
 // This fires directly from the SDK when a track naturally finishes.
 // Only used as fallback when NOT in context mode (album lacks a Spotify context).
 watch(spotifyTrackEnded, async (ended) => {
-  if (spotifyContextMode.value) return // Spotify drives advance natively
-  if (ended && !isAutoAdvancing.value && !isSelectingTrack.value && isPlaying.value) {
-    // Reset immediately to prevent double-firing
-    spotifyTrackEnded.value = false
-    autoAdvanceTrack()
+  if (!ended || isAutoAdvancing.value || isSelectingTrack.value || !isPlaying.value) return
+  // Reset immediately to prevent double-firing
+  spotifyTrackEnded.value = false
+  if (spotifyContextMode.value) {
+    // Spotify advances mid-album natively; an end event here means the album
+    // finished — pause the room so the server clock stops too.
+    const idx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
+    if (idx >= 0 && idx === album.value.tracks.length - 1) {
+      await handleTogglePlayback()
+    }
+    return
   }
+  autoAdvanceTrack()
 })
 
 // When Spotify position drifts from room position, sync Spotify to room (room is source of truth)
 watch(spotifyPosition, async (spotifyPos) => {
   if (!spotifyReady.value || isSyncing.value || isSelectingTrack.value) return
 
+  // Context mode: Spotify's clock is authoritative — mirror it INTO the room.
+  // Seeking the SDK to the lagging local timer instead yanks playback
+  // backward repeatedly (replays the same track).
+  if (spotifyContextMode.value) {
+    if (!spotifyPaused.value) playbackPosition.value = spotifyPos
+    return
+  }
+
   // Backup check for track end via position (in case trackEnded event didn't fire).
-  // Skipped in context mode — Spotify advances natively, the currentTrack watcher syncs.
-  if (!spotifyContextMode.value && !isAutoAdvancing.value && isPlaying.value && currentTrackDuration.value > 0 && spotifyPos >= currentTrackDuration.value - 1500) {
+  if (!isAutoAdvancing.value && isPlaying.value && currentTrackDuration.value > 0 && spotifyPos >= currentTrackDuration.value - 1500) {
     autoAdvanceTrack()
     return
   }
@@ -402,6 +423,14 @@ watch(isPlaying, async (roomIsPlaying, wasPlaying) => {
     if (!spotifyPaused.value) {
       await spotifyPause()
     }
+  }
+})
+
+// Spotify became ready while the room is already playing (joined a live
+// room) — sync to the room instead of sitting silent until a manual sync.
+watch(spotifyReady, async (ready, wasReady) => {
+  if (ready && !wasReady && isPlaying.value && currentTrack.value?.spotify_id) {
+    await handleSyncAudio()
   }
 })
 

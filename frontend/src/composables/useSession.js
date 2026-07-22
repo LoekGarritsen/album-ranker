@@ -75,9 +75,16 @@ export function useSession() {
 
   function startProgressInterval() {
     stopProgressInterval()
+    // Advance by real elapsed time, not a fixed +100. Background tabs throttle
+    // setInterval to >=1s (Chrome 88+), so a fixed increment massively
+    // undercounts and the room clock drifts behind real playback.
+    let last = performance.now()
     progressInterval = setInterval(() => {
+      const now = performance.now()
+      const delta = now - last
+      last = now
       if (isPlaying.value && currentTrackDuration.value > 0) {
-        const newPosition = playbackPosition.value + 100
+        const newPosition = playbackPosition.value + delta
         if (newPosition >= currentTrackDuration.value) {
           playbackPosition.value = currentTrackDuration.value
           stopProgressInterval()
@@ -91,17 +98,17 @@ export function useSession() {
   }
 
   function autoAdvanceToNext() {
-    // Advance to next track when current track ends.
-    // Spotify users in context mode let Spotify advance natively (gapless);
-    // the Session.vue currentTrack watcher mirrors that to the room. Only the
-    // local progress timer drives advance for non-Spotify users.
-    if (spotifyReady.value && album.value?.spotify_id) return
+    // Local timer drives advance only for non-Spotify listeners; Spotify users
+    // advance via the SDK. Letting both fire double-advances and skips tracks.
+    if (spotifyReady.value) return
     const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
     if (trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
       // There's a next track, advance to it
       selectTrack(album.value.tracks[trackIdx + 1].id, sessionUser.value)
     } else {
-      // Last track ended, stop playback
+      // Last track ended — pause on the server too, else its clock keeps
+      // running and pong flips the room back to "playing" every 10s.
+      togglePlayback(sessionUser.value)
       isPlaying.value = false
       stopProgressInterval()
     }
@@ -170,12 +177,18 @@ export function useSession() {
 
   function handleWebSocketMessage(data, currentUser, onMessage) {
     switch (data.type) {
-      case 'sync':
+      case 'sync': {
         // Stop any existing interval first
         stopProgressInterval()
 
         if (session.value) {
           session.value.current_track_id = data.track_id
+        }
+        // Track may have changed while disconnected — refresh duration too,
+        // or the local timer runs against the old track's length.
+        const syncTrack = album.value?.tracks?.find(t => t.id === data.track_id)
+        if (syncTrack) {
+          currentTrackDuration.value = syncTrack.duration_ms
         }
         playbackPosition.value = data.position || 0
         isPlaying.value = data.is_playing || false
@@ -186,6 +199,7 @@ export function useSession() {
           startProgressInterval()
         }
         break
+      }
 
       case 'track_change':
         stopProgressInterval()
@@ -216,6 +230,11 @@ export function useSession() {
         } else if (data.action === 'pause') {
           isPlaying.value = false
         } else if (data.action === 'seek') {
+          // Mirror remote seeks into Spotify — context-mode clients otherwise
+          // ignore them (their position mirror overwrites the room position).
+          if (spotifyReady.value) {
+            spotifySeek(data.position || 0)
+          }
           // Keep current playing state, just update position
           if (isPlaying.value) {
             startProgressInterval()
@@ -223,10 +242,11 @@ export function useSession() {
         }
         break
 
-      case 'pong':
-        // Sync position from server on every pong (every 30s)
-        // Room is source of truth - sync all users including Spotify users
-        if (data.position !== undefined) {
+      case 'pong': {
+        // In context mode Spotify's clock is mirrored into the room locally;
+        // a server correction here would fight it and make the bar jump.
+        const inContextMode = spotifyReady.value && !!album.value?.spotify_id
+        if (!inContextMode && data.position !== undefined) {
           const drift = Math.abs(playbackPosition.value - data.position)
           // Only correct if drift is more than 500ms
           if (drift > 500) {
@@ -243,6 +263,7 @@ export function useSession() {
           }
         }
         break
+      }
 
       case 'user_joined':
         if (!listeners.value.find(l => l.user_id === data.user_id)) {

@@ -51,8 +51,9 @@ def get_results():
                     WHERE tr.track_id = ?
                 """, (t["id"],)).fetchall()
 
-                if t["avg_score"]:
-                    all_track_scores.append(t["avg_score"])
+                # Collect individual ratings (not per-track averages) so this
+                # matches the album-level average shown by /api/albums.
+                all_track_scores.extend(r["score"] for r in rankings if r["score"])
 
                 track_results.append({
                     "id": t["id"],
@@ -317,7 +318,8 @@ def get_year_review(year: int, user_id: Optional[int] = Query(None)):
                 "average_track_score": round(sum(track_scores) / len(track_scores), 1) if track_scores else None,
                 "top_albums": [dict(r) for r in album_ratings[:5]],
                 "top_tracks": [dict(r) for r in track_ratings[:10]],
-                "worst_tracks": [dict(r) for r in track_ratings[-5:]] if len(track_ratings) >= 5 else [],
+                # Worst = bottom 5 (ascending), never overlapping the top 10.
+                "worst_tracks": [dict(r) for r in reversed(track_ratings[max(10, len(track_ratings) - 5):])],
                 "monthly_activity": {r["month"]: r["count"] for r in monthly_counts}
             }
         else:

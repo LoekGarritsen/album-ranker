@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, provide, computed } from 'vue'
+import { ref, onMounted, provide, computed, watch } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { Music2, User, ChevronDown, LogOut, Radio, Mail } from 'lucide-vue-next'
 import MiniPlayer from './components/MiniPlayer.vue'
@@ -86,6 +86,12 @@ function handleSpotifyRedirect() {
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
   }
 }
+
+// Load users on login too (magic-link verify sets currentUser without a
+// remount), or Comparison/TierList see an empty user list until a reload.
+watch(currentUser, (user, prev) => {
+  if (user && !prev) loadUsers()
+})
 
 onMounted(async () => {
   handleSpotifyRedirect()
