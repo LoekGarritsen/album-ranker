@@ -72,7 +72,7 @@ async function handleSync() {
 
 <template>
   <div
-    v-if="session && (hasAlbum || media)"
+    v-if="session && (hasAlbum || media) && !isOnSessionPage"
     class="fixed bottom-0 left-0 right-0 z-40 bg-bg-secondary/95 backdrop-blur-xl border-t border-white/10 safe-area-bottom"
   >
     <!-- Progress bar at top -->
