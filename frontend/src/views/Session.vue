@@ -26,6 +26,7 @@ const {
   session,
   album,
   media,
+  mediaTrack,
   queue,
   isPlaying,
   playbackPosition,
@@ -47,6 +48,8 @@ const {
   addToQueue,
   removeQueueItem,
   voteQueueItem,
+  voteMedia,
+  mediaVotes,
   advanceQueue,
   togglePlayback,
   seekTo,
@@ -137,12 +140,13 @@ const myCurrentTrackScore = computed(() =>
 )
 
 // Album context: what Spotify is actually playing right now (hangout albums
-// advance track-by-track inside the SDK; mirror the name for the room card)
-const liveSpotifyTrackName = computed(() =>
-  spotifyReady.value && media.value?.type === 'album' && !spotifyPaused.value
-    ? spotifyCurrentTrack.value?.name || null
-    : null
-)
+// advance track-by-track inside the SDK; mirror the name for the room card).
+// Without a local player, fall back to the server-reported live track.
+const liveSpotifyTrackName = computed(() => {
+  if (media.value?.type !== 'album') return null
+  if (spotifyReady.value && !spotifyPaused.value) return spotifyCurrentTrack.value?.name || null
+  return mediaTrack.value?.name || null
+})
 
 const headerImage = computed(() => album.value?.cover_url || media.value?.image || null)
 
@@ -270,6 +274,15 @@ function handleVoteQueueItem(itemId, vote) {
 
 async function handleSkipQueue() {
   await advanceQueue()
+}
+
+// My vote on the current song, derived from the room-wide voter list
+const myMediaVote = computed(() =>
+  mediaVotes.value.voters?.find(v => v.user_id === currentUser.value?.id)?.vote || 0
+)
+
+function handleVoteMedia(vote) {
+  voteMedia(vote)
 }
 
 async function handleToggleFavoriteMedia() {
@@ -652,10 +665,17 @@ onUnmounted(() => {
             :duration="currentTrackDuration"
             :live-track-name="liveSpotifyTrackName"
             :is-favorite="media ? isFavorite(media.spotify_id) : false"
+            :likes="mediaVotes.likes"
+            :dislikes="mediaVotes.dislikes"
+            :my-vote="myMediaVote"
+            :show-sync="spotifyReady"
+            :is-syncing="isSyncing"
             @toggle="handleTogglePlayback"
             @seek="handleSeekTo"
             @search="showMediaSearch = true"
             @favorite="handleToggleFavoriteMedia"
+            @vote="handleVoteMedia"
+            @sync="handleSyncAudio"
           />
 
           <!-- Shared queue: anyone adds, votes reorder, top item plays next -->

@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from database import get_connection
 from models import ListeningSession, SessionCreate, SessionJoin, SessionMediaSet
 from state import active_sessions
-from auth_deps import get_current_user
+from auth_deps import get_current_user, get_optional_user
 from security import hash_password, verify_password, hash_token
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -183,6 +183,9 @@ def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
         # Bumps on every now-playing change; queue advance requests carry the
         # seq they saw so a stale/duplicate advance is a no-op (no double-skip).
         "media_seq": 0,
+        # Ephemeral like/dislike on the current song ({user_id: 1|-1}),
+        # reset on every now-playing change.
+        "media_votes": {},
         "is_playing": False,
         "playback_position": 0,
         "playback_started_at": None
@@ -229,8 +232,10 @@ def get_session(code: str):
             })
 
         playback_state = {"is_playing": False, "position": 0}
+        media_track = None
         if code in active_sessions:
             state = active_sessions[code]
+            media_track = state.get("media_track")
             playback_state["is_playing"] = state["is_playing"]
             if state["is_playing"] and state["playback_started_at"]:
                 elapsed = int((time.time() - state["playback_started_at"]) * 1000)
@@ -257,6 +262,8 @@ def get_session(code: str):
             "created_by_name": session["created_by_name"],
             "mode": session["mode"] or "listening",
             "media": json.loads(session["current_media"]) if session["current_media"] else None,
+            "media_track": media_track,
+            "queue": fetch_queue(conn, session["id"]),
             "playback": playback_state
         }
 
@@ -443,6 +450,8 @@ async def set_session_media(code: str, media: SessionMediaSet, user: dict = Depe
         state = active_sessions[code]
         state["media"] = media_dict
         state["media_seq"] = state.get("media_seq", 0) + 1
+        state["media_track"] = None
+        state["media_votes"] = {}
         state["playback_position"] = 0
         state["is_playing"] = True
         state["playback_started_at"] = time.time()
@@ -510,6 +519,8 @@ async def add_to_queue(code: str, item: SessionMediaSet, user: dict = Depends(ge
     if started and state is not None:
         state["media"] = media_dict
         state["media_seq"] = state.get("media_seq", 0) + 1
+        state["media_track"] = None
+        state["media_votes"] = {}
         state["playback_position"] = 0
         state["is_playing"] = True
         state["playback_started_at"] = time.time()
@@ -621,28 +632,13 @@ async def vote_queue_item(code: str, item_id: int, vote: str = Query(...), user:
     return {"ok": True, "queue": queue}
 
 
-@router.post("/{code}/queue/next")
-async def advance_queue(code: str, seq: Optional[int] = Query(None), user: dict = Depends(get_current_user)):
-    """Pop the queue head into now-playing (auto-advance on track end, or skip).
+async def _advance_now_playing(code: str, state: dict, skip_reason: str = None) -> dict:
+    """Pop the highest-voted queue item into now-playing; clear it if empty.
 
-    Every connected client may report a track end, so advances are guarded by
-    `seq`: the media_seq the client last saw. A request carrying a stale seq
-    means someone already advanced — it's a no-op instead of a double-skip.
-    Guard, pop, and state mutation run without awaits, so concurrent requests
-    can't interleave on the single event loop.
+    All DB work and state mutation happen before the first await, so callers
+    that guard on media_seq synchronously can't be interleaved by a concurrent
+    advance on the single event loop.
     """
-    state = active_sessions.get(code)
-    if state is None:
-        raise HTTPException(404, "Session not active")
-
-    if seq is not None and seq != state.get("media_seq", 0):
-        with get_connection() as conn:
-            session = conn.execute(
-                "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
-            ).fetchone()
-            queue = fetch_queue(conn, session["id"]) if session else []
-        return {"ok": True, "advanced": False, "queue": queue}
-
     with get_connection() as conn:
         session = conn.execute(
             "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
@@ -661,15 +657,20 @@ async def advance_queue(code: str, seq: Optional[int] = Query(None), user: dict 
                 "name": head["name"], "artist": head["artist"],
                 "image": head["image"], "duration_ms": head["duration_ms"]
             }
-            conn.execute(
-                "UPDATE listening_sessions SET current_media = ? WHERE id = ?",
-                (json.dumps(media_dict), session["id"])
-            )
+        # Empty queue clears now-playing: the room reads "nothing on" again
+        # and the next added item starts immediately instead of queueing
+        # behind a song that already finished.
+        conn.execute(
+            "UPDATE listening_sessions SET current_media = ? WHERE id = ?",
+            (json.dumps(media_dict) if media_dict else None, session["id"])
+        )
         queue = fetch_queue(conn, session["id"])
 
     if head:
         state["media"] = media_dict
         state["media_seq"] = state.get("media_seq", 0) + 1
+        state["media_track"] = None
+        state["media_votes"] = {}
         state["playback_position"] = 0
         state["is_playing"] = True
         state["playback_started_at"] = time.time()
@@ -680,6 +681,7 @@ async def advance_queue(code: str, seq: Optional[int] = Query(None), user: dict 
             "is_playing": True,
             "position": 0,
             "auto": True,
+            "skip_reason": skip_reason,
             "changed_by": None,
             "changed_by_name": head["added_by_name"]
         })
@@ -693,19 +695,113 @@ async def advance_queue(code: str, seq: Optional[int] = Query(None), user: dict 
         })
         return {"ok": True, "advanced": True, "queue": queue}
 
-    # Queue drained — stop the server clock so pong doesn't resurrect playback.
-    if state["is_playing"] and state["playback_started_at"]:
-        elapsed = int((time.time() - state["playback_started_at"]) * 1000)
-        state["playback_position"] += elapsed
+    # Queue drained — clear now-playing and stop the server clock so pong
+    # doesn't resurrect playback.
+    state["media"] = None
+    state["media_seq"] = state.get("media_seq", 0) + 1
+    state["media_track"] = None
+    state["media_votes"] = {}
     state["is_playing"] = False
+    state["playback_position"] = 0
     state["playback_started_at"] = None
     await broadcast_to_session(code, {
-        "type": "playback",
-        "action": "pause",
-        "position": state["playback_position"],
-        "by": None
+        "type": "media_change",
+        "media": None,
+        "media_seq": state["media_seq"],
+        "is_playing": False,
+        "position": 0,
+        "auto": True,
+        "skip_reason": skip_reason,
+        "changed_by": None,
+        "changed_by_name": None
     })
     return {"ok": True, "advanced": False, "queue": queue}
+
+
+@router.post("/{code}/queue/next")
+async def advance_queue(
+    code: str,
+    seq: Optional[int] = Query(None),
+    user: Optional[dict] = Depends(get_optional_user),
+):
+    """Pop the queue head into now-playing (auto-advance on track end, or skip).
+
+    Every connected client may report a track end, so advances are guarded by
+    `seq`: the media_seq the client last saw. A request carrying a stale seq
+    means someone already advanced — it's a no-op instead of a double-skip.
+
+    Anonymous guests may advance too: a guest-only room must not stall when a
+    track ends, attribution comes from the queue item (not the caller), and the
+    seq guard already de-dupes concurrent reports.
+    """
+    state = active_sessions.get(code)
+    if state is None:
+        raise HTTPException(404, "Session not active")
+
+    if seq is not None and seq != state.get("media_seq", 0):
+        with get_connection() as conn:
+            session = conn.execute(
+                "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
+            ).fetchone()
+            queue = fetch_queue(conn, session["id"]) if session else []
+        return {"ok": True, "advanced": False, "queue": queue}
+
+    return await _advance_now_playing(code, state)
+
+
+def _media_vote_counts(state: dict) -> dict:
+    votes = state.get("media_votes", {})
+    return {
+        "likes": sum(1 for v in votes.values() if v == 1),
+        "dislikes": sum(1 for v in votes.values() if v == -1),
+        "voters": [{"user_id": uid, "vote": v} for uid, v in votes.items()]
+    }
+
+
+@router.post("/{code}/media/vote")
+async def vote_current_media(code: str, vote: str = Query(...), user: dict = Depends(get_current_user)):
+    """Like/dislike the song currently playing (toggle, one vote per user).
+
+    Votes are ephemeral per play — kept in memory and reset whenever the
+    now-playing changes. When a majority of the people online dislike the
+    song (at least 2), it's skipped: the queue advances automatically.
+    """
+    if vote not in ("up", "down"):
+        raise HTTPException(400, "Vote must be 'up' or 'down'")
+
+    state = active_sessions.get(code)
+    if state is None or not state.get("media"):
+        raise HTTPException(404, "Nothing is playing")
+
+    value = 1 if vote == "up" else -1
+    votes = state.setdefault("media_votes", {})
+    if votes.get(user["id"]) == value:
+        votes.pop(user["id"])
+    else:
+        votes[user["id"]] = value
+
+    counts = _media_vote_counts(state)
+
+    # Vote-to-skip decision + seq snapshot happen before any await, so a
+    # concurrent vote can't sneak in between decision and advance.
+    online = len(session_listeners(state))
+    threshold = max(2, -(-online // 2))  # ceil(online / 2), never below 2
+    should_skip = counts["dislikes"] >= threshold
+    seq_at_vote = state.get("media_seq", 0)
+
+    await broadcast_to_session(code, {
+        "type": "media_vote",
+        **counts,
+        "by": user["id"],
+        "by_name": user["name"]
+    })
+
+    skipped = False
+    if should_skip and state.get("media_seq", 0) == seq_at_vote:
+        await _advance_now_playing(code, state, skip_reason="votes")
+        skipped = True
+
+    return {"ok": True, **counts, "skipped": skipped}
 
 
 @router.post("/{code}/playback")
@@ -847,6 +943,7 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                     "current_track_id": session["current_track_id"],
                     "media": json.loads(session["current_media"]) if session["current_media"] else None,
                     "media_seq": 0,
+                    "media_votes": {},
                     "is_playing": False,
                     "playback_position": 0,
                     "playback_started_at": None
@@ -906,6 +1003,8 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
         "track_id": state["current_track_id"],
         "media": state.get("media"),
         "media_seq": state.get("media_seq", 0),
+        "media_track": state.get("media_track"),
+        "media_votes": _media_vote_counts(state),
         "is_playing": state["is_playing"],
         "position": current_position,
         "listeners": session_listeners(state),
@@ -920,14 +1019,45 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
 
             if msg_type == "ping":
                 state = active_sessions.get(code, {})
+                # Hangout clients mirror their Spotify clock in (track within
+                # album context + position) so a rejoin resumes mid-album
+                # instead of restarting at track 1. Latest report wins.
+                prog = data.get("progress")
+                if (
+                    isinstance(prog, dict) and state.get("media") and state.get("is_playing")
+                    and prog.get("media_seq") == state.get("media_seq", 0)
+                    and isinstance(prog.get("track_spotify_id"), str)
+                    and isinstance(prog.get("position"), (int, float))
+                ):
+                    state["media_track"] = {
+                        "spotify_id": prog["track_spotify_id"],
+                        "name": str(prog.get("track_name") or ""),
+                        "duration_ms": prog.get("duration_ms") if isinstance(prog.get("duration_ms"), (int, float)) else 0
+                    }
+                    state["playback_position"] = max(0, int(prog["position"]))
+                    state["playback_started_at"] = time.time()
                 current_position = state.get("playback_position", 0)
                 if state.get("is_playing") and state.get("playback_started_at"):
                     elapsed = int((time.time() - state["playback_started_at"]) * 1000)
                     current_position += elapsed
+                # Autoplay fallback: a track overran its duration and no
+                # client reported the end — advance the queue server-side.
+                m = state.get("media")
+                if (state.get("is_playing") and m and m.get("type") == "track"
+                        and m.get("duration_ms")
+                        and current_position >= m["duration_ms"] + 2000):
+                    try:
+                        await _advance_now_playing(code, state)
+                    except HTTPException:
+                        pass
+                    current_position = state.get("playback_position", 0)
+                    if state.get("is_playing") and state.get("playback_started_at"):
+                        current_position += int((time.time() - state["playback_started_at"]) * 1000)
                 await websocket.send_json({
                     "type": "pong",
                     "position": current_position,
-                    "is_playing": state.get("is_playing", False)
+                    "is_playing": state.get("is_playing", False),
+                    "media_track": state.get("media_track")
                 })
 
             elif msg_type == "chat":

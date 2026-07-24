@@ -30,6 +30,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Album Ranker API", lifespan=lifespan)
 
+
+@app.get("/api/health")
+def health():
+    """Unauthenticated liveness probe for container healthchecks."""
+    return {"status": "ok"}
+
 # Rate limiting (slowapi)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

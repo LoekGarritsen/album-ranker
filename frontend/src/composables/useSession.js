@@ -13,6 +13,12 @@ const queue = ref([])
 // Server's media_seq: sent with advance requests so a stale/duplicate
 // track-end report from another client can't double-skip the queue.
 let mediaSeq = 0
+// Live track within hangout album media ({ spotify_id, name, duration_ms }),
+// server-reported. Lets a rejoin resume mid-album instead of at track 1.
+const mediaTrack = ref(null)
+// Like/dislike on the current song — ephemeral, reset on every media change.
+// Majority dislike (server-decided) skips the song.
+const mediaVotes = ref({ likes: 0, dislikes: 0, voters: [] })
 const isPlaying = ref(false)
 const playbackPosition = ref(0)
 const currentTrackDuration = ref(0)
@@ -61,6 +67,8 @@ export function useSession() {
     isReady: spotifyReady,
     isPaused: spotifyPaused,
     currentTrack: spotifyPlayerTrack,
+    contextUri: spotifyContextUri,
+    position: spotifyPosition,
     play: spotifyPlay,
     playContext: spotifyPlayContext,
     pause: spotifyPause,
@@ -84,10 +92,12 @@ export function useSession() {
   }
 
   // Start Spotify playback for hangout media (single track or album context).
-  async function playMediaOnSpotify(m, positionMs = 0) {
+  // offsetTrackId resumes an album context at a specific track instead of track 1.
+  async function playMediaOnSpotify(m, positionMs = 0, offsetTrackId = null) {
     if (!spotifyReady.value || !m?.spotify_id) return
     if (m.type === 'album') {
-      await spotifyPlayContext(`spotify:album:${m.spotify_id}`, null, positionMs)
+      const offsetUri = offsetTrackId ? `spotify:track:${offsetTrackId}` : null
+      await spotifyPlayContext(`spotify:album:${m.spotify_id}`, offsetUri, offsetUri ? positionMs : 0)
     } else {
       await spotifyPlay(`spotify:track:${m.spotify_id}`, positionMs)
     }
@@ -214,7 +224,20 @@ export function useSession() {
       // Ping every 10 seconds for more responsive sync (room is source of truth)
       pingInterval = setInterval(() => {
         if (ws.value?.readyState === WebSocket.OPEN) {
-          ws.value.send(JSON.stringify({ type: 'ping' }))
+          const payload = { type: 'ping' }
+          // Hangout: our Spotify is the clock — report which track (within an
+          // album context) and where, so the server clock survives rejoins.
+          if (media.value && spotifyReady.value && !spotifyPaused.value && spotifyPlayerTrack.value) {
+            const t = spotifyPlayerTrack.value
+            payload.progress = {
+              media_seq: mediaSeq,
+              track_spotify_id: t.linked_from?.id || t.id,
+              track_name: t.name,
+              duration_ms: t.duration_ms || 0,
+              position: spotifyPosition.value
+            }
+          }
+          ws.value.send(JSON.stringify(payload))
         }
       }, 10000)
     }
@@ -266,6 +289,10 @@ export function useSession() {
           }
         }
         if (data.media_seq !== undefined) mediaSeq = data.media_seq
+        if (data.media_track !== undefined) mediaTrack.value = data.media_track
+        if (data.media_votes !== undefined) {
+          mediaVotes.value = data.media_votes || { likes: 0, dislikes: 0, voters: [] }
+        }
         if (data.queue !== undefined) queue.value = data.queue || []
         playbackPosition.value = data.position || 0
         isPlaying.value = data.is_playing || false
@@ -331,10 +358,13 @@ export function useSession() {
             }
           } else if (spotifyReady.value && media.value?.spotify_id) {
             // Hangout media. Album context position is per-track, so resume in
-            // place when anything is loaded; only cold-start from scratch.
-            if (spotifyHasMedia(media.value) || media.value.type === 'album') {
+            // place when anything is loaded; cold-start (empty player, e.g.
+            // fresh page load) at the server-reported track + position.
+            if (!spotifyPlayerTrack.value) {
+              playMediaOnSpotify(media.value, data.position || 0,
+                media.value.type === 'album' ? mediaTrack.value?.spotify_id : null)
+            } else if (spotifyHasMedia(media.value) || media.value.type === 'album') {
               if (spotifyPaused.value) spotifyResume()
-              else if (!spotifyPlayerTrack.value) playMediaOnSpotify(media.value, data.position || 0)
             } else {
               playMediaOnSpotify(media.value, data.position || 0)
             }
@@ -360,9 +390,12 @@ export function useSession() {
       }
 
       case 'pong': {
+        if (data.media_track !== undefined) mediaTrack.value = data.media_track
         // In context mode Spotify's clock is mirrored into the room locally;
         // a server correction here would fight it and make the bar jump.
-        const inContextMode = spotifyReady.value && !!album.value?.spotify_id
+        // Same for hangout while our Spotify is audibly playing — we ARE the clock.
+        const inContextMode = (spotifyReady.value && !!album.value?.spotify_id) ||
+          (media.value && spotifyReady.value && !spotifyPaused.value)
         if (!inContextMode && data.position !== undefined) {
           const drift = Math.abs(playbackPosition.value - data.position)
           // Only correct if drift is more than 500ms
@@ -384,7 +417,10 @@ export function useSession() {
               }
             } else if (spotifyReady.value && media.value?.spotify_id) {
               if (spotifyPaused.value && spotifyPlayerTrack.value) spotifyResume()
-              else if (!spotifyPlayerTrack.value) playMediaOnSpotify(media.value, playbackPosition.value)
+              else if (!spotifyPlayerTrack.value) {
+                playMediaOnSpotify(media.value, playbackPosition.value,
+                  media.value.type === 'album' ? mediaTrack.value?.spotify_id : null)
+              }
             }
             startProgressInterval()
           } else {
@@ -495,11 +531,18 @@ export function useSession() {
         stopProgressInterval()
         media.value = data.media
         if (data.media_seq !== undefined) mediaSeq = data.media_seq
+        mediaTrack.value = null
+        // New song, fresh slate for like/dislike
+        mediaVotes.value = { likes: 0, dislikes: 0, voters: [] }
         currentTrackDuration.value = data.media?.type === 'track' ? (data.media.duration_ms || 0) : 0
         playbackPosition.value = data.position || 0
         isPlaying.value = data.is_playing || false
 
-        if (data.auto) {
+        if (data.auto && !data.media) {
+          showToast(data.skip_reason === 'votes' ? 'Skipped by vote — queue is empty' : 'Queue finished')
+        } else if (data.skip_reason === 'votes') {
+          showToast(`Skipped by vote — up next: "${data.media?.name}"`)
+        } else if (data.auto) {
           // Queue advance — attribution is whoever queued the item.
           showToast(`Up next: "${data.media?.name}"${data.changed_by_name ? ` (added by ${data.changed_by_name})` : ''}`)
         } else if (data.changed_by !== currentUser?.id) {
@@ -509,6 +552,10 @@ export function useSession() {
         // no optimistic Spotify start in setMedia, so nothing double-fires.
         if (isPlaying.value && spotifyReady.value && data.media?.spotify_id) {
           playMediaOnSpotify(data.media, 0)
+        } else if (!isPlaying.value && spotifyReady.value && !spotifyPaused.value) {
+          // Now-playing cleared (vote-skip into an empty queue) while our
+          // player is still going — stop the audio too.
+          spotifyPause()
         }
         if (isPlaying.value) {
           startProgressInterval()
@@ -520,6 +567,15 @@ export function useSession() {
         queue.value = data.queue || []
         if (data.action === 'added' && data.by !== currentUser?.id) {
           showToast(`${data.by_name || 'Someone'} queued "${data.item?.name}"`)
+        }
+        break
+      }
+
+      case 'media_vote': {
+        mediaVotes.value = {
+          likes: data.likes || 0,
+          dislikes: data.dislikes || 0,
+          voters: data.voters || []
         }
         break
       }
@@ -580,6 +636,7 @@ export function useSession() {
         album.value = null
         media.value = null
         queue.value = []
+        mediaVotes.value = { likes: 0, dislikes: 0, voters: [] }
         sessionUser.value = null
         isPlaying.value = false
         playbackPosition.value = 0
@@ -758,6 +815,7 @@ export function useSession() {
       session.value = await res.json()
       sessionUser.value = currentUser // Store for auto-advance
       media.value = session.value.media || null
+      mediaTrack.value = session.value.media_track || null
       currentTrackDuration.value = session.value.current_track_duration
         || (media.value?.type === 'track' ? media.value.duration_ms : 0)
         || 0
@@ -882,6 +940,22 @@ export function useSession() {
     }
   }
 
+  // Like/dislike the current song (toggle). Counts land via the media_vote
+  // broadcast; a majority of dislikes makes the server skip it.
+  async function voteMedia(vote) {
+    if (!session.value?.code) return false
+    try {
+      const res = await fetch(
+        `/api/sessions/${session.value.code}/media/vote?vote=${vote}`,
+        { method: 'POST' }
+      )
+      return res.ok
+    } catch (e) {
+      console.error('Failed to vote on current song:', e)
+      return false
+    }
+  }
+
   // Like/dislike a queue item (toggle). Reordered queue lands via broadcast.
   async function voteQueueItem(itemId, vote) {
     if (!session.value?.code) return false
@@ -935,6 +1009,7 @@ export function useSession() {
     album.value = null
     media.value = null
     queue.value = []
+    mediaVotes.value = { likes: 0, dislikes: 0, voters: [] }
     sessionUser.value = null
     isPlaying.value = false
     playbackPosition.value = 0
@@ -1095,13 +1170,15 @@ export function useSession() {
         }
       }
 
-      // Refresh hangout media too
+      // Refresh hangout media + shared queue too
       if (data.media !== undefined) {
         media.value = data.media
         if (!currentTrack.value && data.media) {
           currentTrackDuration.value = data.media.type === 'track' ? data.media.duration_ms : 0
         }
       }
+      if (data.media_track !== undefined) mediaTrack.value = data.media_track
+      if (data.queue !== undefined) queue.value = data.queue || []
 
       // Sync Spotify player if connected
       if (spotifyReady.value) {
@@ -1117,8 +1194,21 @@ export function useSession() {
             }
           }
         } else if (media.value?.spotify_id) {
+          // Album context already loaded and audible — restarting would yank
+          // everyone back, so leave Spotify's clock alone.
+          const albumAlreadyOn = media.value.type === 'album' &&
+            spotifyContextUri.value === `spotify:album:${media.value.spotify_id}` &&
+            !spotifyPaused.value
           if (isPlaying.value) {
-            await playMediaOnSpotify(media.value, media.value.type === 'track' ? playbackPosition.value : 0)
+            if (!albumAlreadyOn) {
+              // Album: resume at the server-reported live track, not track 1.
+              const offsetId = media.value.type === 'album' ? mediaTrack.value?.spotify_id : null
+              await playMediaOnSpotify(
+                media.value,
+                media.value.type === 'track' || offsetId ? playbackPosition.value : 0,
+                offsetId
+              )
+            }
           } else if (!spotifyPaused.value) {
             await spotifyPause()
           }
@@ -1130,7 +1220,12 @@ export function useSession() {
         startProgressInterval()
       }
 
-      showToast(`Synced: ${formatDuration(playbackPosition.value)}`, 'success')
+      // Album media has no room clock, so a position stamp would always read 0:00
+      if (media.value?.type === 'album') {
+        showToast('Synced with room', 'success')
+      } else {
+        showToast(`Synced: ${formatDuration(playbackPosition.value)}`, 'success')
+      }
       return true
     } catch (e) {
       console.error('Failed to sync with server:', e)
@@ -1144,7 +1239,9 @@ export function useSession() {
     session,
     album,
     media,
+    mediaTrack,
     queue,
+    mediaVotes,
     isPlaying,
     playbackPosition,
     currentTrackDuration,
@@ -1178,6 +1275,7 @@ export function useSession() {
     addToQueue,
     removeQueueItem,
     voteQueueItem,
+    voteMedia,
     advanceQueue,
     loadAlbumData,
     togglePlayback,

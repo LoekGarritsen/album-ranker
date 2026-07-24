@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { Play, Pause, Music, Disc3, Search, Heart } from 'lucide-vue-next'
+import { Play, Pause, Music, Disc3, Search, Heart, RefreshCw, ThumbsUp, ThumbsDown } from 'lucide-vue-next'
 
 const props = defineProps({
   media: { type: Object, default: null },
@@ -9,10 +9,16 @@ const props = defineProps({
   duration: { type: Number, default: 0 },
   // Spotify's own now-playing (album context advances tracks by itself)
   liveTrackName: { type: String, default: null },
-  isFavorite: { type: Boolean, default: false }
+  isFavorite: { type: Boolean, default: false },
+  // Room-wide like/dislike on the current song; majority dislike skips it
+  likes: { type: Number, default: 0 },
+  dislikes: { type: Number, default: 0 },
+  myVote: { type: Number, default: 0 }, // 1 | -1 | 0
+  showSync: { type: Boolean, default: false },
+  isSyncing: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['toggle', 'seek', 'search', 'favorite'])
+const emit = defineEmits(['toggle', 'seek', 'search', 'favorite', 'vote', 'sync'])
 
 const isTrack = computed(() => props.media?.type === 'track')
 
@@ -43,13 +49,25 @@ function handleProgressClick(event) {
       <Music class="w-10 h-10 mx-auto mb-3 text-slate-600" />
       <p class="text-slate-400 font-medium mb-1">Nothing playing</p>
       <p class="text-sm text-slate-500 mb-4">Put on a song or album for the room</p>
-      <button
-        @click="emit('search')"
-        class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
-      >
-        <Search class="w-4 h-4" />
-        Search music
-      </button>
+      <div class="flex items-center justify-center gap-2">
+        <button
+          @click="emit('search')"
+          class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
+        >
+          <Search class="w-4 h-4" />
+          Search music
+        </button>
+        <button
+          @click="emit('sync')"
+          :disabled="isSyncing"
+          class="p-2.5 rounded-xl hover:bg-white/10 transition-colors text-slate-400"
+          :class="{ 'animate-spin': isSyncing }"
+          aria-label="Refresh room state"
+          title="Refresh room state"
+        >
+          <RefreshCw class="w-4 h-4" />
+        </button>
+      </div>
     </div>
 
     <template v-else>
@@ -77,6 +95,17 @@ function handleProgressClick(event) {
             </p>
           </div>
           <button
+            v-if="showSync"
+            @click="emit('sync')"
+            :disabled="isSyncing"
+            class="p-2.5 rounded-full hover:bg-white/10 transition-colors flex-shrink-0 text-slate-400"
+            :class="{ 'animate-spin': isSyncing }"
+            aria-label="Sync with room"
+            title="Sync with room"
+          >
+            <RefreshCw class="w-5 h-5" />
+          </button>
+          <button
             @click="emit('favorite')"
             class="p-2.5 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
             :class="isFavorite ? 'text-pink-400' : 'text-slate-400 hover:text-pink-400'"
@@ -92,6 +121,31 @@ function handleProgressClick(event) {
           >
             <Pause v-if="isPlaying" class="w-5 h-5" />
             <Play v-else class="w-5 h-5 ml-0.5" />
+          </button>
+        </div>
+
+        <!-- Room vote on the current song: majority dislike skips it -->
+        <div class="flex items-center gap-2 mb-3">
+          <button
+            @click="emit('vote', 'up')"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors min-h-[36px]"
+            :class="myVote === 1 ? 'bg-green-400/15 text-green-400' : 'bg-white/5 text-slate-400 hover:text-green-400 hover:bg-white/10'"
+            aria-label="Like this song"
+            :aria-pressed="myVote === 1"
+          >
+            <ThumbsUp class="w-4 h-4" />
+            <span class="tabular-nums">{{ likes }}</span>
+          </button>
+          <button
+            @click="emit('vote', 'down')"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors min-h-[36px]"
+            :class="myVote === -1 ? 'bg-red-400/15 text-red-400' : 'bg-white/5 text-slate-400 hover:text-red-400 hover:bg-white/10'"
+            aria-label="Dislike this song"
+            :aria-pressed="myVote === -1"
+            title="Majority dislikes skip the song"
+          >
+            <ThumbsDown class="w-4 h-4" />
+            <span class="tabular-nums">{{ dislikes }}</span>
           </button>
         </div>
 

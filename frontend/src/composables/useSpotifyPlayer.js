@@ -13,6 +13,7 @@ const volume = ref(50)
 const error = ref(null)
 const currentUserId = ref(null)
 const trackEnded = ref(false) // Fires when a track naturally finishes
+const contextUri = ref(null) // Album/playlist context currently loaded in the player
 
 let sdkLoaded = false
 let previousState = null // Track previous state for end detection
@@ -189,6 +190,7 @@ export function useSpotifyPlayer() {
         if (!state) return
 
         currentTrack.value = state.track_window.current_track
+        contextUri.value = state.context?.uri || null
         isPaused.value = state.paused
         position.value = state.position
         duration.value = state.duration
@@ -203,9 +205,10 @@ export function useSpotifyPlayer() {
         const nearEnd = state.duration > 0 && state.position >= state.duration - 2000
 
         if (previousState && !previousState.paused && state.paused) {
-          // Transition from playing to paused
-          // Track ended if position is near end OR track moved to previous_tracks
-          if (nearEnd || inPreviousTracks) {
+          // Ended if near the end, in previous_tracks, or snapped back to 0
+          // (single-track end signature; manual pause keeps its position).
+          const resetToStart = state.position === 0 && previousState.position > 0
+          if (nearEnd || inPreviousTracks || resetToStart) {
             trackEnded.value = true
           }
         }
@@ -424,6 +427,7 @@ export function useSpotifyPlayer() {
     volume,
     error,
     trackEnded,
+    contextUri,
 
     // Methods
     setUserId,

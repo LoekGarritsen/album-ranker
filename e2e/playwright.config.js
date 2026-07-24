@@ -1,12 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
-/**
- * Playwright configuration for Album Ranker E2E tests.
- *
- * Run against docker-compose services:
- *   docker-compose -f docker-compose.e2e.yml up -d
- *   cd e2e && npm test
- */
+// Playwright config for Album Ranker E2E. Run against the docker stack:
+//   docker compose -f docker-compose.e2e.yml up -d && cd e2e && npm test
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false, // Run tests sequentially for real-time sync tests
@@ -31,7 +26,7 @@ export default defineConfig({
 
   // Wait for services to be ready before running tests
   webServer: process.env.SKIP_WEBSERVER ? undefined : {
-    command: 'cd .. && docker-compose -f docker-compose.e2e.yml up',
+    command: 'cd .. && docker compose -f docker-compose.e2e.yml up',
     url: 'http://localhost:8401',
     reuseExistingServer: !process.env.CI,
     timeout: 120000, // 2 minutes for containers to start
