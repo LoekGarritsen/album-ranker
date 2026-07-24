@@ -48,6 +48,7 @@ const {
   addToQueue,
   removeQueueItem,
   voteQueueItem,
+  moveQueueItem,
   voteMedia,
   mediaVotes,
   advanceQueue,
@@ -270,6 +271,10 @@ async function handleRemoveQueueItem(itemId) {
 
 function handleVoteQueueItem(itemId, vote) {
   voteQueueItem(itemId, vote)
+}
+
+function handleMoveQueueItem(itemId, index) {
+  moveQueueItem(itemId, index)
 }
 
 async function handleSkipQueue() {
@@ -686,6 +691,7 @@ onUnmounted(() => {
             @add="showMediaSearch = true"
             @remove="handleRemoveQueueItem"
             @vote="handleVoteQueueItem"
+            @move="handleMoveQueueItem"
             @skip="handleSkipQueue"
           />
 

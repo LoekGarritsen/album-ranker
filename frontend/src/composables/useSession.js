@@ -940,6 +940,32 @@ export function useSession() {
     }
   }
 
+  // Move a queue item to a new displayed index. Optimistic local reorder;
+  // the server broadcast (vote-aware ordering) is authoritative.
+  async function moveQueueItem(itemId, index) {
+    if (!session.value?.code) return false
+    const from = queue.value.findIndex(q => q.id === itemId)
+    if (from >= 0) {
+      const next = [...queue.value]
+      const [moved] = next.splice(from, 1)
+      next.splice(Math.min(index, next.length), 0, moved)
+      queue.value = next
+    }
+    try {
+      const res = await fetch(
+        `/api/sessions/${session.value.code}/queue/${itemId}/move?index=${index}`,
+        { method: 'POST' }
+      )
+      if (!res.ok) return false
+      const data = await res.json()
+      queue.value = data.queue || []
+      return true
+    } catch (e) {
+      console.error('Failed to move queue item:', e)
+      return false
+    }
+  }
+
   // Like/dislike the current song (toggle). Counts land via the media_vote
   // broadcast; a majority of dislikes makes the server skip it.
   async function voteMedia(vote) {
@@ -1275,6 +1301,7 @@ export function useSession() {
     addToQueue,
     removeQueueItem,
     voteQueueItem,
+    moveQueueItem,
     voteMedia,
     advanceQueue,
     loadAlbumData,

@@ -115,7 +115,8 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_session_messages_session
                 ON session_messages(session_id, id);
 
-            -- Shared play queue (hangout mode): FIFO by id, anyone can add
+            -- Shared play queue (hangout mode): anyone can add and reorder.
+            -- position is the manual base order; votes sort above it.
             CREATE TABLE IF NOT EXISTS session_queue (
                 id INTEGER PRIMARY KEY,
                 session_id INTEGER NOT NULL REFERENCES listening_sessions(id) ON DELETE CASCADE,
@@ -126,6 +127,7 @@ def init_db():
                 artist TEXT DEFAULT '',
                 image TEXT,
                 duration_ms INTEGER DEFAULT 0,
+                position INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_session_queue_session
@@ -271,6 +273,13 @@ def _run_migrations(conn):
     message_columns = {row[1] for row in cursor.fetchall()}
     if 'kind' not in message_columns:
         conn.execute("ALTER TABLE session_messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'")
+
+    # Manual queue order (drag to reorder); backfill keeps insertion order
+    cursor = conn.execute("PRAGMA table_info(session_queue)")
+    queue_columns = {row[1] for row in cursor.fetchall()}
+    if 'position' not in queue_columns:
+        conn.execute("ALTER TABLE session_queue ADD COLUMN position INTEGER DEFAULT 0")
+        conn.execute("UPDATE session_queue SET position = id")
 
     if 'email' not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")

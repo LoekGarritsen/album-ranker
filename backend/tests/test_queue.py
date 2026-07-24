@@ -97,6 +97,55 @@ class TestQueueVotes:
         assert res.status_code == 400
 
 
+class TestQueueMove:
+    def _room_with_three(self, client, admin_headers):
+        code = _create_hangout(client, admin_headers)
+        client.post(f"/api/sessions/{code}/media", json=_media(), headers=admin_headers)
+        for name, sid in (("B", "sp_b"), ("C", "sp_c"), ("D", "sp_d")):
+            res = client.post(f"/api/sessions/{code}/queue", json=_media(name, sid), headers=admin_headers)
+        return code, res.json()["queue"]
+
+    def test_move_to_front(self, client, admin_headers):
+        code, queue = self._room_with_three(client, admin_headers)
+        last_id = queue[2]["id"]
+        res = client.post(f"/api/sessions/{code}/queue/{last_id}/move?index=0", headers=admin_headers)
+        assert [q["spotify_id"] for q in res.json()["queue"]] == ["sp_d", "sp_b", "sp_c"]
+
+    def test_move_down(self, client, admin_headers):
+        code, queue = self._room_with_three(client, admin_headers)
+        first_id = queue[0]["id"]
+        res = client.post(f"/api/sessions/{code}/queue/{first_id}/move?index=1", headers=admin_headers)
+        assert [q["spotify_id"] for q in res.json()["queue"]] == ["sp_c", "sp_b", "sp_d"]
+
+    def test_move_index_clamped(self, client, admin_headers):
+        code, queue = self._room_with_three(client, admin_headers)
+        first_id = queue[0]["id"]
+        res = client.post(f"/api/sessions/{code}/queue/{first_id}/move?index=99", headers=admin_headers)
+        assert [q["spotify_id"] for q in res.json()["queue"]] == ["sp_c", "sp_d", "sp_b"]
+
+    def test_moved_order_drives_advance(self, client, admin_headers):
+        code, queue = self._room_with_three(client, admin_headers)
+        last_id = queue[2]["id"]
+        client.post(f"/api/sessions/{code}/queue/{last_id}/move?index=0", headers=admin_headers)
+        client.post(f"/api/sessions/{code}/queue/next?seq=1", headers=admin_headers)
+        session = client.get(f"/api/sessions/{code}").json()
+        assert session["media"]["spotify_id"] == "sp_d"
+
+    def test_votes_sort_above_manual_order(self, client, admin_headers, user_headers):
+        code, queue = self._room_with_three(client, admin_headers)
+        last_id = queue[2]["id"]
+        client.post(f"/api/sessions/{code}/queue/{last_id}/vote?vote=up", headers=user_headers)
+        first_id = queue[0]["id"]
+        res = client.post(f"/api/sessions/{code}/queue/{first_id}/move?index=0", headers=admin_headers)
+        # Voted item keeps the top spot despite the manual move
+        assert res.json()["queue"][0]["spotify_id"] == "sp_d"
+
+    def test_move_unknown_item_404(self, client, admin_headers):
+        code, _ = self._room_with_three(client, admin_headers)
+        res = client.post(f"/api/sessions/{code}/queue/99999/move?index=0", headers=admin_headers)
+        assert res.status_code == 404
+
+
 class TestQueueRemove:
     def test_adder_can_remove_own_item(self, client, admin_headers, user_headers):
         code = _create_hangout(client, admin_headers)

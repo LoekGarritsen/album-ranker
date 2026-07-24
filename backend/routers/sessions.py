@@ -68,8 +68,8 @@ def user_is_connected(state: dict, user_key) -> bool:
     return any(e["user_key"] == user_key for e in state["connections"].values())
 
 
-# Net vote score orders the queue (most-wanted plays next); insertion id
-# breaks ties so unvoted items stay FIFO.
+# Net vote score orders the queue (most-wanted plays next); the manual
+# position (drag to reorder) breaks ties, then insertion id.
 QUEUE_ORDER_SQL = """
     SELECT q.id, q.type, q.spotify_id, q.name, q.artist, q.image,
            q.duration_ms, q.added_by, u.name as added_by_name,
@@ -80,7 +80,7 @@ QUEUE_ORDER_SQL = """
     LEFT JOIN queue_votes v ON v.queue_item_id = q.id
     WHERE q.session_id = ?
     GROUP BY q.id
-    ORDER BY (likes - dislikes) DESC, q.id
+    ORDER BY (likes - dislikes) DESC, q.position, q.id
 """
 
 
@@ -510,10 +510,11 @@ async def add_to_queue(code: str, item: SessionMediaSet, user: dict = Depends(ge
             )
         else:
             conn.execute("""
-                INSERT INTO session_queue (session_id, added_by, type, spotify_id, name, artist, image, duration_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO session_queue (session_id, added_by, type, spotify_id, name, artist, image, duration_ms, position)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+                        (SELECT COALESCE(MAX(position), 0) + 1 FROM session_queue WHERE session_id = ?))
             """, (session["id"], user["id"], item.type, item.spotify_id, item.name,
-                  item.artist, item.image, item.duration_ms))
+                  item.artist, item.image, item.duration_ms, session["id"]))
         queue = fetch_queue(conn, session["id"])
 
     if started and state is not None:
@@ -624,6 +625,42 @@ async def vote_queue_item(code: str, item_id: int, vote: str = Query(...), user:
     await broadcast_to_session(code, {
         "type": "queue_update",
         "action": "voted",
+        "item": {"id": item_id},
+        "by": user["id"],
+        "by_name": user["name"],
+        "queue": queue
+    })
+    return {"ok": True, "queue": queue}
+
+
+@router.post("/{code}/queue/{item_id}/move")
+async def move_queue_item(code: str, item_id: int, index: int = Query(..., ge=0), user: dict = Depends(get_current_user)):
+    """Move a queue item to a new spot (any signed-in member).
+
+    `index` is the target 0-based position in the queue as displayed. The
+    whole queue is renumbered to the resulting arrangement; vote scores still
+    sort above the manual order, so voted items may not sit exactly at index.
+    """
+    with get_connection() as conn:
+        session = conn.execute(
+            "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+
+        ordered = [r["id"] for r in conn.execute(QUEUE_ORDER_SQL, (session["id"],)).fetchall()]
+        if item_id not in ordered:
+            raise HTTPException(404, "Queue item not found")
+
+        ordered.remove(item_id)
+        ordered.insert(min(index, len(ordered)), item_id)
+        for pos, qid in enumerate(ordered):
+            conn.execute("UPDATE session_queue SET position = ? WHERE id = ?", (pos, qid))
+        queue = fetch_queue(conn, session["id"])
+
+    await broadcast_to_session(code, {
+        "type": "queue_update",
+        "action": "moved",
         "item": {"id": item_id},
         "by": user["id"],
         "by_name": user["name"],

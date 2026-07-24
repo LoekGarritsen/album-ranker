@@ -1,5 +1,6 @@
 <script setup>
-import { ListMusic, Plus, X, SkipForward, Music, Disc3, ThumbsUp, ThumbsDown } from 'lucide-vue-next'
+import { ref } from 'vue'
+import { ListMusic, Plus, X, SkipForward, Music, Disc3, ThumbsUp, ThumbsDown, GripVertical, ChevronUp, ChevronDown } from 'lucide-vue-next'
 
 const props = defineProps({
   queue: { type: Array, default: () => [] },
@@ -8,7 +9,33 @@ const props = defineProps({
   canModerate: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['add', 'remove', 'skip', 'vote'])
+const emit = defineEmits(['add', 'remove', 'skip', 'vote', 'move'])
+
+// Drag to reorder (desktop); arrow buttons cover touch devices
+const dragId = ref(null)
+const dragOverIdx = ref(null)
+
+function onDragStart(item) {
+  dragId.value = item.id
+}
+
+function onDragOver(idx) {
+  if (dragId.value !== null) dragOverIdx.value = idx
+}
+
+function onDrop(idx) {
+  if (dragId.value !== null) {
+    const from = props.queue.findIndex(q => q.id === dragId.value)
+    if (from >= 0 && from !== idx) emit('move', dragId.value, idx)
+  }
+  dragId.value = null
+  dragOverIdx.value = null
+}
+
+function onDragEnd() {
+  dragId.value = null
+  dragOverIdx.value = null
+}
 
 function canRemove(item) {
   return props.canModerate || item.added_by === props.currentUserId
@@ -70,8 +97,18 @@ function formatDuration(ms) {
       <li
         v-for="(item, idx) in queue"
         :key="item.id"
-        class="flex items-center gap-3 p-3"
+        class="flex items-center gap-2 p-3 transition-colors"
+        :class="{
+          'opacity-40': dragId === item.id,
+          'bg-white/10': dragOverIdx === idx && dragId !== item.id
+        }"
+        draggable="true"
+        @dragstart="onDragStart(item)"
+        @dragover.prevent="onDragOver(idx)"
+        @drop.prevent="onDrop(idx)"
+        @dragend="onDragEnd"
       >
+        <GripVertical class="w-4 h-4 text-slate-600 flex-shrink-0 cursor-grab active:cursor-grabbing" aria-hidden="true" />
         <span class="text-xs text-slate-500 tabular-nums w-4 text-right flex-shrink-0">{{ idx + 1 }}</span>
         <div class="relative flex-shrink-0">
           <img
@@ -93,7 +130,27 @@ function formatDuration(ms) {
           <p class="text-xs text-slate-500 truncate">added by {{ item.added_by_name }}</p>
         </div>
 
-        <!-- Like/dislike: net score reorders the queue (best plays next) -->
+        <!-- Move up/down (touch-friendly reorder) -->
+        <div class="flex flex-col flex-shrink-0">
+          <button
+            @click="emit('move', item.id, idx - 1)"
+            :disabled="idx === 0"
+            class="p-0.5 rounded text-slate-500 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            :aria-label="`Move ${item.name} up`"
+          >
+            <ChevronUp class="w-4 h-4" />
+          </button>
+          <button
+            @click="emit('move', item.id, idx + 1)"
+            :disabled="idx === queue.length - 1"
+            class="p-0.5 rounded text-slate-500 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            :aria-label="`Move ${item.name} down`"
+          >
+            <ChevronDown class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Like/dislike: net score sorts above the manual order -->
         <div class="flex items-center gap-0.5 flex-shrink-0">
           <button
             @click="emit('vote', item.id, 'up')"
