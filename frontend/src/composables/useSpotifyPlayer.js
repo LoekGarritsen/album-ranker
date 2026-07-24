@@ -20,6 +20,16 @@ let sdkLoadPromise = null
 let positionInterval = null
 let deviceActivated = false // Transfer playback to this device only once
 
+// Serialize playback commands. Play/pause/seek arriving in quick succession
+// (WS broadcasts + watchers) otherwise race — a late pause() can land after
+// a fresh play() and kill it, or a seek can rewind the wrong track.
+let commandChain = Promise.resolve()
+function enqueueCommand(fn) {
+  const run = commandChain.then(fn, fn)
+  commandChain = run.catch(() => {})
+  return run
+}
+
 // Load Spotify SDK script
 function loadSpotifySDK() {
   if (sdkLoadPromise) return sdkLoadPromise
@@ -183,13 +193,9 @@ export function useSpotifyPlayer() {
         position.value = state.position
         duration.value = state.duration
 
-        // Detect natural track end using multiple signals
-        // See: https://github.com/spotify/web-playback-sdk/issues/35
-        // See: https://github.com/spotify/web-playback-sdk/issues/85
-        // When a track ends naturally:
-        // - First event: paused=true, position near duration
-        // - Second event: paused=true, position=0
-        // Current track may also appear in previous_tracks
+        // Natural track end has no SDK event (spotify/web-playback-sdk#35, #85):
+        // detect paused=true with position near duration, or the current track
+        // showing up in previous_tracks.
         const currentTrackId = state.track_window.current_track?.id
         const inPreviousTracks = state.track_window.previous_tracks?.some(
           t => t.id === currentTrackId
@@ -283,7 +289,11 @@ export function useSpotifyPlayer() {
 
   // Shared playback request. Pass either a single-track `uris` body or a
   // `context_uri` (+ optional offset) body for gapless album playback.
-  async function sendPlay(body) {
+  function sendPlay(body) {
+    return enqueueCommand(() => doSendPlay(body))
+  }
+
+  async function doSendPlay(body) {
     if (!isReady.value || !deviceId.value) {
       error.value = 'Player not ready'
       return false
@@ -332,36 +342,40 @@ export function useSpotifyPlayer() {
     return sendPlay({ uris: [spotifyUri], position_ms: positionMs })
   }
 
-  // Play an album/playlist as a context and let Spotify advance tracks
-  // natively. This gives the smoothest transitions the Web Playback SDK
-  // allows — the app must NOT re-issue play() on each track end, or the
-  // gapless transition is lost. Track advances are observed via
-  // player_state_changed (currentTrack) instead.
+  // Play an album/playlist as a context so Spotify advances tracks natively
+  // (gapless). Never re-issue play() per track end — advances are observed
+  // via player_state_changed instead.
   async function playContext(contextUri, offsetUri = null, positionMs = 0) {
     const body = { context_uri: contextUri, position_ms: positionMs }
     if (offsetUri) body.offset = { uri: offsetUri }
     return sendPlay(body)
   }
 
-  async function pause() {
-    if (player.value) {
-      await player.value.pause()
-      isPaused.value = true
-    }
+  function pause() {
+    return enqueueCommand(async () => {
+      if (player.value) {
+        await player.value.pause()
+        isPaused.value = true
+      }
+    })
   }
 
-  async function resume() {
-    if (player.value) {
-      await player.value.resume()
-      isPaused.value = false
-    }
+  function resume() {
+    return enqueueCommand(async () => {
+      if (player.value) {
+        await player.value.resume()
+        isPaused.value = false
+      }
+    })
   }
 
-  async function seek(positionMs) {
-    if (player.value) {
-      await player.value.seek(positionMs)
-      position.value = positionMs
-    }
+  function seek(positionMs) {
+    return enqueueCommand(async () => {
+      if (player.value) {
+        await player.value.seek(positionMs)
+        position.value = positionMs
+      }
+    })
   }
 
   async function setVolume(vol) {

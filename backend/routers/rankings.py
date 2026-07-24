@@ -9,23 +9,11 @@ from models import AlbumRankingCreate, TrackRankingCreate
 from spotify import fetch_lyrics
 from state import active_sessions
 from auth_deps import get_current_user
+# Single broadcast implementation — a stale duplicate here once assumed the
+# old connections shape and silently dropped every client it touched.
+from routers.sessions import broadcast_to_session
 
 router = APIRouter(prefix="/api", tags=["rankings"])
-
-
-async def broadcast_to_session(code: str, message: dict):
-    """Broadcast a message to all connected clients in a session."""
-    if code not in active_sessions:
-        return
-    failed_connections = []
-    for user_id, ws in list(active_sessions[code]["connections"].items()):
-        try:
-            await ws.send_json(message)
-        except Exception:
-            failed_connections.append(user_id)
-    for user_id in failed_connections:
-        if code in active_sessions and user_id in active_sessions[code]["connections"]:
-            del active_sessions[code]["connections"][user_id]
 
 
 @router.post("/rankings/album")

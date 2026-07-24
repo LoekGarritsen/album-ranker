@@ -154,6 +154,112 @@ def list_albums():
         return result
 
 
+@router.get("/{album_id}", response_model=AlbumWithTracks)
+def get_album(album_id: int):
+    """Get a single album with tracks and rankings (same shape as list entries)."""
+    with get_connection() as conn:
+        album_row = conn.execute("SELECT * FROM albums WHERE id = ?", (album_id,)).fetchone()
+        if not album_row:
+            raise HTTPException(404, "Album not found")
+
+        users = conn.execute("SELECT id, name FROM users").fetchall()
+        user_map = {u["id"]: u["name"] for u in users}
+
+        album_rank_rows = conn.execute("""
+            SELECT ar.user_id, ar.score, ar.comment
+            FROM album_rankings ar WHERE ar.album_id = ?
+        """, (album_id,)).fetchall()
+        album_rank_data = {r["user_id"]: r for r in album_rank_rows}
+
+        track_rows = conn.execute("""
+            SELECT t.*, tr.user_id, tr.score, tr.comment
+            FROM tracks t
+            LEFT JOIN track_rankings tr ON t.id = tr.track_id
+            WHERE t.album_id = ?
+            ORDER BY t.disc_number, t.track_number
+        """, (album_id,)).fetchall()
+
+        tracks = {}
+        for t in track_rows:
+            entry = tracks.setdefault(t["id"], {
+                "id": t["id"],
+                "spotify_id": t["spotify_id"],
+                "name": t["name"],
+                "artist": t["artist"],
+                "disc_number": t["disc_number"] or 1,
+                "track_number": t["track_number"],
+                "duration_ms": t["duration_ms"],
+                "rankings": {}
+            })
+            if t["user_id"]:
+                entry["rankings"][t["user_id"]] = {"score": t["score"], "comment": t["comment"]}
+
+        album_user_rankings = []
+        album_scores = []
+        for user_id, user_name in user_map.items():
+            ranking = album_rank_data.get(user_id)
+            album_user_rankings.append(UserRanking(
+                user_id=user_id,
+                user_name=user_name,
+                score=ranking["score"] if ranking else None,
+                comment=ranking["comment"] if ranking else None
+            ))
+            if ranking and ranking["score"]:
+                album_scores.append(ranking["score"])
+
+        tracks_with_rankings = []
+        all_track_scores = []
+        for track_data in tracks.values():
+            user_rankings = []
+            track_scores = []
+            for user_id, user_name in user_map.items():
+                ranking = track_data["rankings"].get(user_id)
+                user_rankings.append(UserRanking(
+                    user_id=user_id,
+                    user_name=user_name,
+                    score=ranking["score"] if ranking else None,
+                    comment=ranking["comment"] if ranking else None
+                ))
+                if ranking and ranking["score"]:
+                    track_scores.append(ranking["score"])
+                    all_track_scores.append(ranking["score"])
+
+            track_avg = sum(track_scores) / len(track_scores) if track_scores else None
+            tracks_with_rankings.append(TrackWithRankings(
+                id=track_data["id"],
+                spotify_id=track_data["spotify_id"],
+                name=track_data["name"],
+                artist=track_data["artist"],
+                disc_number=track_data["disc_number"],
+                track_number=track_data["track_number"],
+                duration_ms=track_data["duration_ms"],
+                rankings=user_rankings,
+                average_score=round(track_avg, 1) if track_avg else None
+            ))
+
+        tracks_with_rankings.sort(key=lambda t: (t.disc_number, t.track_number))
+
+        album_avg = sum(album_scores) / len(album_scores) if album_scores else None
+        track_avg = sum(all_track_scores) / len(all_track_scores) if all_track_scores else None
+
+        album_dict = dict(album_row)
+        genres = None
+        if album_dict.get("genres"):
+            try:
+                genres = json.loads(album_dict["genres"])
+            except:
+                pass
+        album_dict["genres"] = genres
+
+        return AlbumWithTracks(
+            **album_dict,
+            tracks=tracks_with_rankings,
+            album_rankings=album_user_rankings,
+            average_album_score=round(album_avg, 1) if album_avg else None,
+            average_track_score=round(track_avg, 1) if track_avg else None
+        )
+
+
 @router.post("", response_model=Album)
 async def add_album(album: AlbumAdd, admin: dict = Depends(require_admin)):
     """Add a new album from Spotify (admin only)."""
