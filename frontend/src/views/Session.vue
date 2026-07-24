@@ -1,9 +1,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw, Info, Disc3, Search, X, BarChart3, TrendingUp, TrendingDown } from 'lucide-vue-next'
+import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw, Info, Disc3, Search, X, BarChart3, TrendingUp, TrendingDown, MessageCircle, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
+import SessionChat from '../components/session/SessionChat.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 import { useSession } from '../composables/useSession'
 
@@ -23,6 +24,10 @@ const {
   progressPercent,
   isInSession,
   hasAlbum,
+  isHangout,
+  chatOpen,
+  unreadChatCount,
+  setChatOpen,
   joinSession,
   leaveSession,
   selectTrack,
@@ -484,6 +489,15 @@ watch(spotifyReady, async (ready, wasReady) => {
   }
 })
 
+// Hangout rooms are chat-first: chat starts open
+watch(isHangout, (hangout) => {
+  if (hangout) setChatOpen(true)
+}, { immediate: true })
+
+function toggleChat() {
+  setChatOpen(!chatOpen.value)
+}
+
 // Redirect to rooms if session is ended (deleted by admin)
 watch(session, (newSession) => {
   if (newSession === null && !loading.value) {
@@ -546,13 +560,20 @@ onUnmounted(() => {
           </div>
           <div class="flex-1 text-center sm:text-left">
             <div class="flex items-center justify-center sm:justify-start gap-2 text-accent-primary text-sm mb-2">
-              <Radio class="w-4 h-4 animate-pulse" />
+              <component :is="isHangout ? MessageCircle : Radio" class="w-4 h-4 animate-pulse" />
               {{ session.name }}
+              <span v-if="isHangout" class="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-xs font-medium">
+                Hangout
+              </span>
             </div>
             <h1 v-if="album" class="text-xl sm:text-2xl font-heading font-bold mb-1">{{ album.name }}</h1>
-            <h1 v-else class="text-xl sm:text-2xl font-heading font-bold mb-1 text-slate-400">No album selected</h1>
+            <h1 v-else class="text-xl sm:text-2xl font-heading font-bold mb-1 text-slate-400">
+              {{ isHangout ? 'Hanging out' : 'No album selected' }}
+            </h1>
             <p v-if="album" class="text-slate-400 mb-4">{{ album.artist }}</p>
-            <p v-else class="text-slate-500 mb-4">Select an album to start listening</p>
+            <p v-else class="text-slate-500 mb-4">
+              {{ isHangout ? 'Chat with friends — add music anytime' : 'Select an album to start listening' }}
+            </p>
 
             <!-- Session Code + Change Album -->
             <div class="flex items-center justify-center sm:justify-start gap-3 flex-wrap">
@@ -591,7 +612,7 @@ onUnmounted(() => {
       <div class="glass p-4 mb-4">
         <div class="flex items-center gap-3 mb-3">
           <Users class="w-5 h-5 text-accent-primary" />
-          <span class="font-medium">Listening Now</span>
+          <span class="font-medium">{{ isHangout ? 'Here Now' : 'Listening Now' }}</span>
           <span class="text-sm text-slate-400">({{ listeners.length }})</span>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -611,8 +632,41 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Chat (hangout rooms start open; listening rooms collapsible) -->
+      <div class="glass mb-4 overflow-hidden">
+        <button
+          @click="toggleChat"
+          class="w-full flex items-center gap-3 p-4 min-h-[44px] text-left hover:bg-white/5 transition-colors"
+        >
+          <MessageCircle class="w-5 h-5 text-accent-primary" />
+          <span class="font-medium">Chat</span>
+          <span
+            v-if="unreadChatCount > 0 && !chatOpen"
+            class="px-2 py-0.5 bg-accent-primary text-black text-xs font-bold rounded-full"
+          >
+            {{ unreadChatCount }}
+          </span>
+          <component :is="chatOpen ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400 ml-auto" />
+        </button>
+        <SessionChat v-if="chatOpen" :current-user="currentUser" :tall="isHangout" />
+      </div>
+
+      <!-- Compact album hint (hangout: music is optional) -->
+      <div v-if="!hasAlbum && isHangout" class="glass p-4 mb-4 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 text-slate-400 min-w-0">
+          <Disc3 class="w-5 h-5 flex-shrink-0" />
+          <span class="text-sm truncate">No music yet — add an album anytime</span>
+        </div>
+        <button
+          @click="openAlbumPicker"
+          class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors min-h-[44px] flex-shrink-0"
+        >
+          Select Album
+        </button>
+      </div>
+
       <!-- Album Picker Prompt (when no album) -->
-      <div v-if="!hasAlbum" class="glass p-8 mb-4 text-center">
+      <div v-if="!hasAlbum && !isHangout" class="glass p-8 mb-4 text-center">
         <Disc3 class="w-16 h-16 mx-auto mb-4 text-slate-500" />
         <h2 class="text-xl font-heading font-medium text-slate-300 mb-2">No album selected</h2>
         <p class="text-slate-500 mb-6">Choose an album to start listening together</p>

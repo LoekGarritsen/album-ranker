@@ -61,6 +61,18 @@ class MockWebSocket {
 // Expose MockWebSocket globally
 global.WebSocket = MockWebSocket
 
+// Mock localStorage (auth token lookup in connectWebSocket)
+const localStorageStore = new Map()
+Object.defineProperty(global, 'localStorage', {
+  value: {
+    getItem: (k) => (localStorageStore.has(k) ? localStorageStore.get(k) : null),
+    setItem: (k, v) => localStorageStore.set(k, String(v)),
+    removeItem: (k) => localStorageStore.delete(k),
+    clear: () => localStorageStore.clear()
+  },
+  writable: true
+})
+
 // Mock window.location
 Object.defineProperty(global, 'location', {
   value: {

@@ -194,6 +194,152 @@ class TestWebSocketSessionEnd:
             assert "message" in end_msg
 
 
+class TestWebSocketChat:
+    def test_chat_message_broadcast_and_persisted(self, client, admin_headers, admin_token, user_token):
+        code = _make_session(client, admin_headers, name="Chat Test", mode="hangout")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws1:
+            ws1.receive_json(); ws1.receive_json()
+            with client.websocket_connect(ws_url(code, user_token)) as ws2:
+                ws1.receive_json(); ws2.receive_json(); ws2.receive_json()
+                ws2.send_json({"type": "chat", "content": "hello room", "client_id": "abc-123"})
+                msg1 = ws1.receive_json()
+                assert msg1["type"] == "chat_message"
+                assert msg1["content"] == "hello room"
+                assert msg1["user_id"] == 2
+                assert msg1["user_name"] == "TestUser"
+                assert msg1["id"] > 0
+                # Sender gets the echo too, with its client_id for reconciliation.
+                echo = ws2.receive_json()
+                assert echo["type"] == "chat_message"
+                assert echo["client_id"] == "abc-123"
+
+        history = client.get(f"/api/sessions/{code}/messages").json()
+        assert len(history["messages"]) == 1
+        assert history["messages"][0]["content"] == "hello room"
+        assert history["has_more"] is False
+
+    def test_guest_cannot_chat(self, client, admin_headers):
+        code = _make_session(client, admin_headers, name="Guest Chat Test")
+        with client.websocket_connect(ws_url(code)) as ws:
+            ws.receive_json(); ws.receive_json()
+            ws.send_json({"type": "chat", "content": "sneaky"})
+            err = ws.receive_json()
+            assert err["type"] == "error"
+        history = client.get(f"/api/sessions/{code}/messages").json()
+        assert history["messages"] == []
+
+    def test_empty_and_oversized_messages_dropped(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="Validation Test")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json(); ws.receive_json()
+            ws.send_json({"type": "chat", "content": "   "})
+            ws.send_json({"type": "chat", "content": "x" * 1001})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+        history = client.get(f"/api/sessions/{code}/messages").json()
+        assert history["messages"] == []
+
+    def test_typing_relayed_not_persisted(self, client, admin_headers, admin_token, user_token):
+        code = _make_session(client, admin_headers, name="Typing Test")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws1:
+            ws1.receive_json(); ws1.receive_json()
+            with client.websocket_connect(ws_url(code, user_token)) as ws2:
+                ws1.receive_json(); ws2.receive_json(); ws2.receive_json()
+                ws2.send_json({"type": "typing"})
+                typing = ws1.receive_json()
+                assert typing["type"] == "user_typing"
+                assert typing["user_id"] == 2
+                assert typing["user_name"] == "TestUser"
+        history = client.get(f"/api/sessions/{code}/messages").json()
+        assert history["messages"] == []
+
+    def test_reaction_toggle(self, client, admin_headers, admin_token, user_token):
+        code = _make_session(client, admin_headers, name="Reaction Test")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws1:
+            ws1.receive_json(); ws1.receive_json()
+            ws1.send_json({"type": "chat", "content": "react to me"})
+            msg = ws1.receive_json()
+            with client.websocket_connect(ws_url(code, user_token)) as ws2:
+                ws1.receive_json(); ws2.receive_json(); ws2.receive_json()
+                ws2.send_json({"type": "reaction", "message_id": msg["id"], "emoji": "🔥"})
+                r1 = ws1.receive_json()
+                assert r1["type"] == "reaction"
+                assert r1["action"] == "added"
+                assert r1["emoji"] == "🔥"
+                # Toggle off
+                ws2.send_json({"type": "reaction", "message_id": msg["id"], "emoji": "🔥"})
+                r2 = ws1.receive_json()
+                assert r2["action"] == "removed"
+
+    def test_reaction_included_in_history(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="Reaction History Test")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json(); ws.receive_json()
+            ws.send_json({"type": "chat", "content": "banger"})
+            msg = ws.receive_json()
+            ws.send_json({"type": "reaction", "message_id": msg["id"], "emoji": "🎵"})
+            ws.receive_json()
+        history = client.get(f"/api/sessions/{code}/messages").json()
+        assert history["messages"][0]["reactions"] == [
+            {"emoji": "🎵", "user_id": 1, "user_name": "TestAdmin"}
+        ]
+
+
+class TestChatHistoryPagination:
+    def _post_messages(self, client, code, token, count):
+        import time as _t
+        with client.websocket_connect(ws_url(code, token)) as ws:
+            ws.receive_json(); ws.receive_json()
+            for i in range(count):
+                ws.send_json({"type": "chat", "content": f"msg {i}"})
+                ws.receive_json()
+                _t.sleep(0.31)  # flood guard gap
+
+    def test_before_id_pages_older(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="Paging Test")
+        self._post_messages(client, code, admin_token, 5)
+        page1 = client.get(f"/api/sessions/{code}/messages", params={"limit": 3}).json()
+        assert len(page1["messages"]) == 3
+        assert page1["has_more"] is True
+        assert page1["messages"][-1]["content"] == "msg 4"
+        oldest_id = page1["messages"][0]["id"]
+        page2 = client.get(f"/api/sessions/{code}/messages", params={"limit": 3, "before_id": oldest_id}).json()
+        assert [m["content"] for m in page2["messages"]] == ["msg 0", "msg 1"]
+        assert page2["has_more"] is False
+
+    def test_after_id_catches_up(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="Catchup Test")
+        self._post_messages(client, code, admin_token, 3)
+        all_msgs = client.get(f"/api/sessions/{code}/messages").json()["messages"]
+        catchup = client.get(
+            f"/api/sessions/{code}/messages", params={"after_id": all_msgs[0]["id"]}
+        ).json()
+        assert [m["content"] for m in catchup["messages"]] == ["msg 1", "msg 2"]
+
+    def test_messages_for_unknown_session_404(self, client):
+        assert client.get("/api/sessions/NOPE99/messages").status_code == 404
+
+
+class TestHangoutMode:
+    def test_create_hangout_session(self, client, admin_headers):
+        res = client.post("/api/sessions", json={"name": "Hangout", "mode": "hangout"}, headers=admin_headers)
+        assert res.status_code == 200
+        code = res.json()["code"]
+        assert res.json()["mode"] == "hangout"
+        detail = client.get(f"/api/sessions/{code}").json()
+        assert detail["mode"] == "hangout"
+        listing = client.get("/api/sessions").json()
+        assert any(s["code"] == code and s["mode"] == "hangout" for s in listing)
+
+    def test_default_mode_is_listening(self, client, admin_headers):
+        code = _make_session(client, admin_headers, name="Default Mode")
+        assert client.get(f"/api/sessions/{code}").json()["mode"] == "listening"
+
+    def test_invalid_mode_rejected(self, client, admin_headers):
+        res = client.post("/api/sessions", json={"name": "Bad", "mode": "party"}, headers=admin_headers)
+        assert res.status_code == 422
+
+
 class TestWebSocketCleanup:
     def test_disconnect_removes_from_active_sessions(self, client, admin_headers, user_token):
         code = _make_session(client, admin_headers, name="Cleanup Test")

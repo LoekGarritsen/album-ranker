@@ -91,6 +91,7 @@ def init_db():
                 is_active INTEGER DEFAULT 1,
                 is_public INTEGER DEFAULT 1,
                 password TEXT,
+                mode TEXT DEFAULT 'listening',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -99,6 +100,26 @@ def init_db():
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (session_id, user_id)
+            );
+
+            -- Chat messages in rooms (hangout mode + listening chat)
+            CREATE TABLE IF NOT EXISTS session_messages (
+                id INTEGER PRIMARY KEY,
+                session_id INTEGER NOT NULL REFERENCES listening_sessions(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_messages_session
+                ON session_messages(session_id, id);
+
+            -- Emoji reactions on chat messages (toggle semantics)
+            CREATE TABLE IF NOT EXISTS message_reactions (
+                message_id INTEGER NOT NULL REFERENCES session_messages(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                emoji TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (message_id, user_id, emoji)
             );
 
             -- Spotify OAuth tokens for Web Playback SDK
@@ -184,6 +205,10 @@ def _run_migrations(conn):
     # Add email to users (magic-link login key). Unique among non-null values.
     cursor = conn.execute("PRAGMA table_info(users)")
     user_columns = {row[1] for row in cursor.fetchall()}
+
+    # Room mode: 'listening' (album sync) or 'hangout' (chat-first, music optional)
+    if 'mode' not in columns:
+        conn.execute("ALTER TABLE listening_sessions ADD COLUMN mode TEXT DEFAULT 'listening'")
 
     if 'email' not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")

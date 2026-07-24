@@ -8,7 +8,9 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8400',
-        changeOrigin: true
+        changeOrigin: true,
+        // Session WebSocket (/api/sessions/{code}/ws) must upgrade through the dev proxy
+        ws: true
       }
     }
   },

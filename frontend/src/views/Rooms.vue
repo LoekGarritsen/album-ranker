@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject } from 'vue'
 import { useRouter } from 'vue-router'
-import { Radio, Users, Lock, Plus, X, Loader2, ChevronLeft, Trash2 } from 'lucide-vue-next'
+import { Radio, Users, Lock, Plus, X, Loader2, ChevronLeft, Trash2, MessageCircle } from 'lucide-vue-next'
 
 const router = useRouter()
 const currentUser = inject('currentUser')
@@ -16,7 +16,8 @@ const showCreateModal = ref(false)
 const createForm = ref({
   name: '',
   isPublic: true,
-  password: ''
+  password: '',
+  mode: 'listening'
 })
 const creating = ref(false)
 
@@ -26,8 +27,30 @@ const passwordInput = ref('')
 const passwordError = ref('')
 const joiningRoom = ref(null)
 
+// Join by room code
+const codeInput = ref('')
+const codeError = ref('')
+
 // Auto-refresh interval
 let refreshInterval = null
+
+async function joinByCode() {
+  const code = codeInput.value.trim().toUpperCase()
+  if (code.length < 4) return
+  codeError.value = ''
+  try {
+    const res = await fetch(`/api/sessions/${code}`)
+    if (!res.ok) {
+      codeError.value = 'Room not found'
+      return
+    }
+    const room = await res.json()
+    // Reuse the normal join flow so password-protected rooms still prompt
+    await joinRoom({ code: room.code, name: room.name, has_password: room.has_password })
+  } catch (e) {
+    codeError.value = 'Room not found'
+  }
+}
 
 async function loadRooms(showLoading = true) {
   if (showLoading) loading.value = true
@@ -56,7 +79,8 @@ async function createRoom() {
       body: JSON.stringify({
         name: createForm.value.name.trim(),
         is_public: createForm.value.isPublic,
-        password: createForm.value.password || null
+        password: createForm.value.password || null,
+        mode: createForm.value.mode
       })
     })
 
@@ -72,7 +96,7 @@ async function createRoom() {
 
 function closeCreateModal() {
   showCreateModal.value = false
-  createForm.value = { name: '', isPublic: true, password: '' }
+  createForm.value = { name: '', isPublic: true, password: '', mode: 'listening' }
 }
 
 async function joinRoom(room) {
@@ -193,6 +217,26 @@ onUnmounted(() => {
       </button>
     </div>
 
+    <!-- Join by code (private rooms aren't in the list) -->
+    <form @submit.prevent="joinByCode" class="flex items-center gap-2 mb-6 flex-wrap">
+      <input
+        v-model="codeInput"
+        type="text"
+        maxlength="6"
+        placeholder="Have a code?"
+        class="input-base !w-44 font-mono uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal placeholder:font-sans"
+        @input="codeError = ''"
+      />
+      <button
+        type="submit"
+        :disabled="codeInput.trim().length < 4"
+        class="px-4 py-2 glass glass-hover rounded-xl text-sm min-h-[44px] disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Join
+      </button>
+      <p v-if="codeError" class="text-red-400 text-sm">{{ codeError }}</p>
+    </form>
+
     <!-- Loading skeleton -->
     <div v-if="loading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <div v-for="i in 6" :key="i" class="glass p-4">
@@ -241,7 +285,8 @@ onUnmounted(() => {
               class="w-16 h-16 rounded-lg object-cover bg-white/10"
             />
             <div v-else class="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center">
-              <Radio class="w-6 h-6 text-slate-500" />
+              <MessageCircle v-if="room.mode === 'hangout'" class="w-6 h-6 text-purple-400" />
+              <Radio v-else class="w-6 h-6 text-slate-500" />
             </div>
             <div v-if="room.has_password" class="absolute -top-1 -right-1 w-5 h-5 bg-slate-700 rounded-full flex items-center justify-center">
               <Lock class="w-3 h-3 text-slate-300" />
@@ -253,12 +298,21 @@ onUnmounted(() => {
           </div>
 
           <div class="flex-1 min-w-0">
-            <h3 class="font-heading font-semibold truncate">{{ room.name }}</h3>
+            <div class="flex items-center gap-2 min-w-0">
+              <h3 class="font-heading font-semibold truncate">{{ room.name }}</h3>
+              <span
+                v-if="room.mode === 'hangout'"
+                class="px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-medium flex-shrink-0"
+              >
+                Hangout
+              </span>
+            </div>
             <p v-if="room.album_name" class="text-sm text-slate-400 truncate">{{ room.album_name }}</p>
+            <p v-else-if="room.mode === 'hangout'" class="text-sm text-slate-500 italic">Chat room</p>
             <p v-else class="text-sm text-slate-500 italic">No album selected</p>
             <div class="flex items-center gap-2 mt-2 text-xs text-slate-500">
               <Users class="w-3 h-3" />
-              <span>{{ room.participant_count }} listening</span>
+              <span>{{ room.participant_count }} {{ room.mode === 'hangout' ? 'hanging out' : 'listening' }}</span>
               <span v-if="room.created_by_name" class="text-slate-600">· by {{ room.created_by_name }}</span>
             </div>
           </div>
@@ -291,6 +345,40 @@ onUnmounted(() => {
         </div>
 
         <form @submit.prevent="createRoom" class="space-y-4">
+          <div>
+            <label class="block text-sm text-slate-400 mb-2">Room Type</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                @click="createForm.mode = 'listening'"
+                class="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors"
+                :class="createForm.mode === 'listening'
+                  ? 'bg-accent-primary/15 border-accent-primary/60 text-accent-primary'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
+              >
+                <Radio class="w-5 h-5" />
+                <span class="text-sm font-medium">Listening</span>
+                <span class="text-[11px] leading-tight" :class="createForm.mode === 'listening' ? 'text-accent-primary/80' : 'text-slate-500'">
+                  Rate an album in sync
+                </span>
+              </button>
+              <button
+                type="button"
+                @click="createForm.mode = 'hangout'"
+                class="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors"
+                :class="createForm.mode === 'hangout'
+                  ? 'bg-purple-500/15 border-purple-400/60 text-purple-300'
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
+              >
+                <MessageCircle class="w-5 h-5" />
+                <span class="text-sm font-medium">Hangout</span>
+                <span class="text-[11px] leading-tight" :class="createForm.mode === 'hangout' ? 'text-purple-300/80' : 'text-slate-500'">
+                  Chat & vibe, music optional
+                </span>
+              </button>
+            </div>
+          </div>
+
           <div>
             <label class="block text-sm text-slate-400 mb-2">Room Name</label>
             <input

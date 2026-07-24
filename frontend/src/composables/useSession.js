@@ -12,17 +12,29 @@ const ws = ref(null)
 const toasts = ref([])
 const sessionUser = ref(null) // Store current user for auto-advance
 
+// Chat state (hangout mode + listening chat)
+const chatMessages = ref([])
+const chatHasMore = ref(false)
+const typingUsers = ref([]) // [{ user_id, user_name }]
+const chatOpen = ref(false)
+const unreadChatCount = ref(0)
+
 let progressInterval = null
 let pingInterval = null
 let toastId = 0
 let reconnectTimer = null
 let reconnectAttempts = 0
+let typingSentAt = 0
+const typingTimers = new Map() // user_id -> hide timeout
 
 // Track if we're actively in a session
 const isInSession = computed(() => !!session.value?.code)
 
 // Track if session has an album selected
 const hasAlbum = computed(() => !!session.value?.album_id && !!album.value)
+
+// Hangout rooms are chat-first; music is optional
+const isHangout = computed(() => session.value?.mode === 'hangout')
 
 const currentTrack = computed(() => {
   if (!album.value?.tracks || !session.value?.current_track_id) return null
@@ -222,6 +234,10 @@ export function useSession() {
         if (isPlaying.value) {
           startProgressInterval()
         }
+
+        // Reconnect catch-up: the DB is the replay buffer — fetch anything
+        // missed while the socket was down (dedup happens in the merge).
+        catchUpChat()
         break
       }
 
@@ -412,6 +428,53 @@ export function useSession() {
         }
         break
 
+      case 'chat_message': {
+        // Reconcile the sender's optimistic bubble by client_id first.
+        const pendingIdx = data.client_id
+          ? chatMessages.value.findIndex(m => m.pending && m.client_id === data.client_id)
+          : -1
+        const message = {
+          id: data.id,
+          user_id: data.user_id,
+          user_name: data.user_name,
+          content: data.content,
+          created_at: data.created_at,
+          reactions: []
+        }
+        if (pendingIdx >= 0) {
+          chatMessages.value[pendingIdx] = message
+        } else if (!chatMessages.value.some(m => m.id === data.id)) {
+          chatMessages.value.push(message)
+        }
+        // A real message replaces the sender's typing indicator instantly.
+        clearTypingUser(data.user_id)
+        if (data.user_id !== currentUser?.id && !chatOpen.value) {
+          unreadChatCount.value++
+        }
+        break
+      }
+
+      case 'user_typing':
+        if (data.user_id !== currentUser?.id) {
+          upsertTypingUser(data.user_id, data.user_name)
+        }
+        break
+
+      case 'reaction': {
+        const msg = chatMessages.value.find(m => m.id === data.message_id)
+        if (msg) {
+          if (!msg.reactions) msg.reactions = []
+          if (data.action === 'added') {
+            msg.reactions.push({ emoji: data.emoji, user_id: data.user_id, user_name: data.user_name })
+          } else {
+            msg.reactions = msg.reactions.filter(
+              r => !(r.emoji === data.emoji && r.user_id === data.user_id)
+            )
+          }
+        }
+        break
+      }
+
       case 'session_ended':
         // Room was closed/deleted
         showToast(data.message || 'This room has been closed', 'error')
@@ -423,6 +486,7 @@ export function useSession() {
         playbackPosition.value = 0
         currentTrackDuration.value = 0
         listeners.value = []
+        resetChatState()
         stopProgressInterval()
         break
     }
@@ -433,6 +497,140 @@ export function useSession() {
     }
   }
 
+  // --- Chat ---
+
+  function upsertTypingUser(userId, userName) {
+    if (!typingUsers.value.some(u => u.user_id === userId)) {
+      typingUsers.value.push({ user_id: userId, user_name: userName })
+    }
+    // Receiver-side safety timeout: hide if not refreshed within 5s
+    clearTimeout(typingTimers.get(userId))
+    typingTimers.set(userId, setTimeout(() => clearTypingUser(userId), 5000))
+  }
+
+  function clearTypingUser(userId) {
+    clearTimeout(typingTimers.get(userId))
+    typingTimers.delete(userId)
+    typingUsers.value = typingUsers.value.filter(u => u.user_id !== userId)
+  }
+
+  function resetChatState() {
+    chatMessages.value = []
+    chatHasMore.value = false
+    unreadChatCount.value = 0
+    chatOpen.value = false
+    for (const t of typingTimers.values()) clearTimeout(t)
+    typingTimers.clear()
+    typingUsers.value = []
+    typingSentAt = 0
+  }
+
+  async function loadChatHistory() {
+    if (!session.value?.code) return
+    try {
+      const res = await fetch(`/api/sessions/${session.value.code}/messages?limit=50`)
+      if (res.ok) {
+        const data = await res.json()
+        chatMessages.value = data.messages
+        chatHasMore.value = data.has_more
+      }
+    } catch (e) {
+      console.error('Failed to load chat history:', e)
+    }
+  }
+
+  async function loadOlderChat() {
+    if (!session.value?.code || !chatHasMore.value || !chatMessages.value.length) return
+    const oldest = chatMessages.value.find(m => !m.pending)
+    if (!oldest) return
+    try {
+      const res = await fetch(
+        `/api/sessions/${session.value.code}/messages?limit=50&before_id=${oldest.id}`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        chatMessages.value = [...data.messages, ...chatMessages.value]
+        chatHasMore.value = data.has_more
+      }
+    } catch (e) {
+      console.error('Failed to load older chat:', e)
+    }
+  }
+
+  // On (re)connect: fetch anything missed while the socket was down. First
+  // sync after joining doubles as the initial history load.
+  async function catchUpChat() {
+    if (!session.value?.code) return
+    const confirmed = chatMessages.value.filter(m => !m.pending)
+    if (!confirmed.length) {
+      await loadChatHistory()
+      return
+    }
+    try {
+      const lastId = confirmed[confirmed.length - 1].id
+      const res = await fetch(
+        `/api/sessions/${session.value.code}/messages?after_id=${lastId}&limit=100`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        // Dedup by id: a message can arrive both live and via catch-up.
+        const known = new Set(chatMessages.value.map(m => m.id))
+        const fresh = data.messages.filter(m => !known.has(m.id))
+        if (fresh.length) {
+          chatMessages.value.push(...fresh)
+          if (!chatOpen.value) unreadChatCount.value += fresh.length
+        }
+      }
+    } catch (e) {
+      console.error('Chat catch-up failed:', e)
+    }
+  }
+
+  function sendChatMessage(content) {
+    const text = (content || '').trim()
+    if (!text || text.length > 1000) return false
+    if (ws.value?.readyState !== WebSocket.OPEN) {
+      showToast('Not connected — message not sent', 'error')
+      return false
+    }
+    // Optimistic bubble, reconciled by client_id when the echo arrives.
+    const clientId = crypto.randomUUID()
+    chatMessages.value.push({
+      id: null,
+      client_id: clientId,
+      pending: true,
+      user_id: sessionUser.value?.id,
+      user_name: sessionUser.value?.name,
+      content: text,
+      created_at: new Date().toISOString(),
+      reactions: []
+    })
+    ws.value.send(JSON.stringify({ type: 'chat', content: text, client_id: clientId }))
+    return true
+  }
+
+  // Throttled: at most one typing signal per 2.5s while keys are pressed
+  function sendTyping() {
+    const now = Date.now()
+    if (now - typingSentAt < 2500) return
+    typingSentAt = now
+    if (ws.value?.readyState === WebSocket.OPEN) {
+      ws.value.send(JSON.stringify({ type: 'typing' }))
+    }
+  }
+
+  function toggleReaction(messageId, emoji) {
+    if (!messageId) return
+    if (ws.value?.readyState === WebSocket.OPEN) {
+      ws.value.send(JSON.stringify({ type: 'reaction', message_id: messageId, emoji }))
+    }
+  }
+
+  function setChatOpen(open) {
+    chatOpen.value = open
+    if (open) unreadChatCount.value = 0
+  }
+
   async function loadAlbumData(albumId) {
     if (!albumId) {
       album.value = null
@@ -440,10 +638,9 @@ export function useSession() {
     }
 
     try {
-      const albumRes = await fetch('/api/albums')
+      const albumRes = await fetch(`/api/albums/${albumId}`)
       if (albumRes.ok) {
-        const albums = await albumRes.json()
-        album.value = albums.find(a => a.id === albumId)
+        album.value = await albumRes.json()
         if (currentTrack.value) {
           currentTrackDuration.value = currentTrack.value.duration_ms
         }
@@ -531,6 +728,7 @@ export function useSession() {
     playbackPosition.value = 0
     currentTrackDuration.value = 0
     listeners.value = []
+    resetChatState()
   }
 
   async function selectTrack(trackId, currentUser) {
@@ -726,8 +924,21 @@ export function useSession() {
     toasts,
     isInSession,
     hasAlbum,
+    isHangout,
     currentTrack,
     progressPercent,
+
+    // Chat
+    chatMessages,
+    chatHasMore,
+    typingUsers,
+    chatOpen,
+    unreadChatCount,
+    sendChatMessage,
+    sendTyping,
+    toggleReaction,
+    loadOlderChat,
+    setChatOpen,
 
     // Methods
     joinSession,

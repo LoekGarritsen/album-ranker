@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 # User models
 class UserCreate(BaseModel):
@@ -128,12 +128,14 @@ class ListeningSession(BaseModel):
     has_password: bool = False
     created_by_name: Optional[str] = None
     is_active: bool = True
+    mode: str = "listening"
 
 class SessionCreate(BaseModel):
     name: str
     album_id: Optional[int] = None
     is_public: bool = True
     password: Optional[str] = None
+    mode: Literal["listening", "hangout"] = "listening"
 
 class SessionJoin(BaseModel):
     password: Optional[str] = None
@@ -153,9 +155,13 @@ class WSMessageType(str, Enum):
     """All WebSocket message types."""
     # Client -> Server
     PING = "ping"
+    CHAT = "chat"
+    TYPING = "typing"
 
     # Server -> Client
     PONG = "pong"
+    CHAT_MESSAGE = "chat_message"
+    USER_TYPING = "user_typing"
     SYNC = "sync"
     TRACK_CHANGE = "track_change"
     ALBUM_CHANGE = "album_change"
@@ -258,3 +264,42 @@ class WSServerSessionEnded(BaseModel):
     """Broadcast when session is closed by admin."""
     type: Literal["session_ended"] = "session_ended"
     message: str
+
+
+# --- Chat (hangout mode) ---
+
+class WSClientChat(BaseModel):
+    """Client sends a chat message (authed users only)."""
+    type: Literal["chat"] = "chat"
+    content: str = Field(min_length=1, max_length=1000)
+
+
+class WSClientTyping(BaseModel):
+    """Client signals it is typing (throttled client-side, not persisted)."""
+    type: Literal["typing"] = "typing"
+
+
+class WSServerChatMessage(BaseModel):
+    """Broadcast when a chat message is posted."""
+    type: Literal["chat_message"] = "chat_message"
+    id: int
+    user_id: int
+    user_name: str
+    content: str
+    created_at: str
+
+
+class WSServerUserTyping(BaseModel):
+    """Broadcast typing indicator to other clients."""
+    type: Literal["user_typing"] = "user_typing"
+    user_id: Union[int, str]
+    user_name: str
+
+
+class ChatMessage(BaseModel):
+    """Chat message as returned by the history endpoint."""
+    id: int
+    user_id: int
+    user_name: str
+    content: str
+    created_at: str

@@ -164,7 +164,7 @@ describe('useSession', () => {
 
       global.fetch = mockFetch({
         '/api/sessions/ABC123': { data: mockSessionData },
-        '/api/albums': { data: mockAlbums }
+        '/api/albums/1': { data: mockAlbums[0] }
       })
 
       await session.joinSession('ABC123', { id: 1, name: 'TestUser' })
@@ -365,9 +365,122 @@ describe('useSession', () => {
     })
   })
 
+  describe('chat', () => {
+    let ws
+
+    beforeEach(async () => {
+      global.fetch = mockFetch({
+        '/api/sessions/ABC123': {
+          data: { code: 'ABC123', mode: 'hangout', playback: { is_playing: false, position: 0 }, participants: [] }
+        },
+        '/api/sessions/ABC123/messages': { data: { messages: [], has_more: false } }
+      })
+      await session.joinSession('ABC123', { id: 1, name: 'Me' })
+      ws = wsInstances[wsInstances.length - 1]
+    })
+
+    it('sends optimistically and reconciles with the server echo', () => {
+      expect(session.sendChatMessage('hello room')).toBe(true)
+      expect(session.chatMessages.value).toHaveLength(1)
+      expect(session.chatMessages.value[0].pending).toBe(true)
+
+      const sent = JSON.parse(ws._messageQueue[ws._messageQueue.length - 1])
+      expect(sent.type).toBe('chat')
+      ws._receiveMessage({
+        type: 'chat_message',
+        id: 10,
+        client_id: sent.client_id,
+        user_id: 1,
+        user_name: 'Me',
+        content: 'hello room',
+        created_at: '2026-07-24T12:00:00Z'
+      })
+
+      expect(session.chatMessages.value).toHaveLength(1)
+      expect(session.chatMessages.value[0].pending).toBeFalsy()
+      expect(session.chatMessages.value[0].id).toBe(10)
+    })
+
+    it('dedups messages arriving twice by id', () => {
+      const msg = {
+        type: 'chat_message', id: 5, user_id: 2, user_name: 'Friend',
+        content: 'yo', created_at: '2026-07-24T12:00:00Z'
+      }
+      ws._receiveMessage(msg)
+      ws._receiveMessage(msg)
+      expect(session.chatMessages.value).toHaveLength(1)
+    })
+
+    it('rejects empty and whitespace-only messages', () => {
+      expect(session.sendChatMessage('   ')).toBe(false)
+      expect(session.chatMessages.value).toHaveLength(0)
+    })
+
+    it('counts unread only while chat is closed', () => {
+      session.setChatOpen(false)
+      ws._receiveMessage({
+        type: 'chat_message', id: 1, user_id: 2, user_name: 'Friend',
+        content: 'psst', created_at: '2026-07-24T12:00:00Z'
+      })
+      expect(session.unreadChatCount.value).toBe(1)
+
+      session.setChatOpen(true)
+      expect(session.unreadChatCount.value).toBe(0)
+      ws._receiveMessage({
+        type: 'chat_message', id: 2, user_id: 2, user_name: 'Friend',
+        content: 'again', created_at: '2026-07-24T12:00:01Z'
+      })
+      expect(session.unreadChatCount.value).toBe(0)
+    })
+
+    it('shows typing users but never the current user', () => {
+      ws._receiveMessage({ type: 'user_typing', user_id: 2, user_name: 'Friend' })
+      ws._receiveMessage({ type: 'user_typing', user_id: 1, user_name: 'Me' })
+      expect(session.typingUsers.value).toHaveLength(1)
+      expect(session.typingUsers.value[0].user_name).toBe('Friend')
+    })
+
+    it('clears the typing indicator when that user posts a message', () => {
+      ws._receiveMessage({ type: 'user_typing', user_id: 2, user_name: 'Friend' })
+      ws._receiveMessage({
+        type: 'chat_message', id: 3, user_id: 2, user_name: 'Friend',
+        content: 'done typing', created_at: '2026-07-24T12:00:00Z'
+      })
+      expect(session.typingUsers.value).toHaveLength(0)
+    })
+
+    it('applies reaction add and remove broadcasts', () => {
+      ws._receiveMessage({
+        type: 'chat_message', id: 7, user_id: 2, user_name: 'Friend',
+        content: 'banger', created_at: '2026-07-24T12:00:00Z'
+      })
+      ws._receiveMessage({ type: 'reaction', message_id: 7, emoji: '🔥', user_id: 1, user_name: 'Me', action: 'added' })
+      expect(session.chatMessages.value[0].reactions).toEqual([
+        { emoji: '🔥', user_id: 1, user_name: 'Me' }
+      ])
+      ws._receiveMessage({ type: 'reaction', message_id: 7, emoji: '🔥', user_id: 1, user_name: 'Me', action: 'removed' })
+      expect(session.chatMessages.value[0].reactions).toEqual([])
+    })
+
+    it('clears chat state on leaveSession', () => {
+      ws._receiveMessage({
+        type: 'chat_message', id: 1, user_id: 2, user_name: 'Friend',
+        content: 'bye', created_at: '2026-07-24T12:00:00Z'
+      })
+      session.leaveSession()
+      expect(session.chatMessages.value).toHaveLength(0)
+      expect(session.typingUsers.value).toHaveLength(0)
+      expect(session.unreadChatCount.value).toBe(0)
+    })
+  })
+
   describe('progress tracking', () => {
     beforeEach(() => {
-      vi.useFakeTimers()
+      // The interval measures real elapsed time via performance.now() (to
+      // survive background-tab throttling), so performance must be faked too.
+      vi.useFakeTimers({
+        toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance']
+      })
     })
 
     afterEach(() => {

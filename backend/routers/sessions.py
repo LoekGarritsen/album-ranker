@@ -3,6 +3,7 @@ Listening session routes including WebSocket handling.
 """
 from fastapi import APIRouter, HTTPException, Depends, Query, WebSocket
 from typing import Optional
+from datetime import datetime, timezone
 import random
 import string
 import time
@@ -23,29 +24,35 @@ def generate_session_code():
 
 
 async def broadcast_to_session(code: str, message: dict):
-    """Broadcast a message to all connected clients in a session."""
+    """Broadcast a message to all connected clients in a session.
+
+    Connections are keyed by a per-socket id (never by user id): a reconnect
+    or second tab must not overwrite — or later delete — another live socket's
+    entry, which silently cut that client off from all broadcasts.
+    """
     if code not in active_sessions:
         return
-    failed_connections = []
-    for user_id, ws in list(active_sessions[code]["connections"].items()):
+    connections = active_sessions[code]["connections"]
+    failed = []
+    for conn_id, entry in list(connections.items()):
         try:
-            await ws.send_json(message)
+            await entry["ws"].send_json(message)
         except Exception:
-            failed_connections.append(user_id)
-    for user_id in failed_connections:
-        if code in active_sessions and user_id in active_sessions[code]["connections"]:
-            del active_sessions[code]["connections"][user_id]
+            failed.append(conn_id)
+    for conn_id in failed:
+        connections.pop(conn_id, None)
 
 
-def get_user_name(user_id) -> str:
-    """Get user name by ID (handles int user IDs and guest_* strings)."""
-    if not user_id:
-        return "Guest"
-    if isinstance(user_id, str) and user_id.startswith("guest_"):
-        return "Guest"
-    with get_connection() as conn:
-        user = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
-        return user["name"] if user else "Guest"
+def session_listeners(state: dict) -> list[dict]:
+    """Unique online users (a user with two tabs is listed once)."""
+    seen = {}
+    for entry in state["connections"].values():
+        seen.setdefault(entry["user_key"], entry["user_name"])
+    return [{"user_id": k, "user_name": v} for k, v in seen.items()]
+
+
+def user_is_connected(state: dict, user_key) -> bool:
+    return any(e["user_key"] == user_key for e in state["connections"].values())
 
 
 @router.get("", response_model=list[ListeningSession])
@@ -54,7 +61,7 @@ def list_sessions():
     with get_connection() as conn:
         sessions = conn.execute("""
             SELECT ls.id, ls.code, ls.name, ls.album_id, ls.is_public, ls.password,
-                   ls.current_track_id, ls.is_active, ls.created_by,
+                   ls.current_track_id, ls.is_active, ls.created_by, ls.mode,
                    a.name as album_name, a.cover_url,
                    t.name as current_track_name,
                    u.name as created_by_name
@@ -68,7 +75,8 @@ def list_sessions():
 
         result = []
         for s in sessions:
-            active_count = len(active_sessions.get(s["code"], {}).get("connections", {}))
+            conns = active_sessions.get(s["code"], {}).get("connections", {})
+            active_count = len({e["user_key"] for e in conns.values()})
             result.append(ListeningSession(
                 id=s["id"],
                 code=s["code"],
@@ -82,7 +90,8 @@ def list_sessions():
                 is_public=bool(s["is_public"]),
                 has_password=bool(s["password"]),
                 created_by_name=s["created_by_name"],
-                is_active=bool(s["is_active"])
+                is_active=bool(s["is_active"]),
+                mode=s["mode"] or "listening"
             ))
         return result
 
@@ -110,9 +119,9 @@ def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
             ).fetchone()
 
         conn.execute("""
-            INSERT INTO listening_sessions (code, name, album_id, current_track_id, created_by, is_public, password)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (code, data.name, data.album_id, first_track["id"] if first_track else None, x_user_id, 1 if data.is_public else 0, password_hash))
+            INSERT INTO listening_sessions (code, name, album_id, current_track_id, created_by, is_public, password, mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (code, data.name, data.album_id, first_track["id"] if first_track else None, x_user_id, 1 if data.is_public else 0, password_hash, data.mode))
 
         conn.execute("""
             INSERT OR IGNORE INTO session_participants (session_id, user_id)
@@ -128,7 +137,7 @@ def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
         "playback_started_at": None
     }
 
-    return {"code": code, "name": data.name, "album": dict(album) if album else None}
+    return {"code": code, "name": data.name, "mode": data.mode, "album": dict(album) if album else None}
 
 
 @router.get("/{code}")
@@ -156,7 +165,9 @@ def get_session(code: str):
 
         active_listener_ids = []
         if code in active_sessions:
-            active_listener_ids = list(active_sessions[code]["connections"].keys())
+            active_listener_ids = [
+                e["user_key"] for e in active_sessions[code]["connections"].values()
+            ]
 
         participant_list = []
         for p in participants:
@@ -192,6 +203,7 @@ def get_session(code: str):
             "is_public": bool(session["is_public"]),
             "has_password": bool(session["password"]),
             "created_by_name": session["created_by_name"],
+            "mode": session["mode"] or "listening",
             "playback": playback_state
         }
 
@@ -228,14 +240,16 @@ async def update_session_track(
     code: str,
     track_id: int = Query(...),
     keep_playing: bool = Query(False),
+    play: bool = Query(False),
     user: dict = Depends(get_current_user),
 ):
     """Update the current track in a session.
 
-    Normally a track change resets to a paused state (manual track pick).
-    When `keep_playing` is set the room keeps playing without interruption —
-    used when Spotify advances tracks natively (gapless album playback), so the
-    room mirrors the advance without a pause/resume blip.
+    `play`: manual track pick that starts playback immediately — one atomic
+    broadcast instead of a track/seek/play triplet (whose pause->play flip
+    raced on remote Spotify clients). `keep_playing`: the room mirrors a
+    native Spotify context advance; clients must NOT re-issue playback.
+    Neither flag: track changes and the room is paused.
     """
     x_user_id = user["id"]
     user_name = None
@@ -254,17 +268,19 @@ async def update_session_track(
             user_name = user["name"] if user else None
 
     if code in active_sessions:
+        is_playing = keep_playing or play
         active_sessions[code]["current_track_id"] = track_id
         active_sessions[code]["playback_position"] = 0
-        active_sessions[code]["is_playing"] = keep_playing
-        active_sessions[code]["playback_started_at"] = time.time() if keep_playing else None
+        active_sessions[code]["is_playing"] = is_playing
+        active_sessions[code]["playback_started_at"] = time.time() if is_playing else None
 
         await broadcast_to_session(code, {
             "type": "track_change",
             "track_id": track_id,
             "duration": track["duration_ms"] if track else 0,
             "position": 0,
-            "is_playing": keep_playing,
+            "is_playing": is_playing,
+            "keep_playing": keep_playing,
             "changed_by": x_user_id,
             "changed_by_name": user_name
         })
@@ -326,13 +342,16 @@ async def control_playback(code: str, action: str = Query(...), position: Option
 
     state = active_sessions[code]
 
+    # "by" lets clients that already applied the action optimistically
+    # (e.g. the seeking user) skip re-applying their own echo.
     if action == "play":
         state["is_playing"] = True
         state["playback_started_at"] = time.time()
         await broadcast_to_session(code, {
             "type": "playback",
             "action": "play",
-            "position": state["playback_position"]
+            "position": state["playback_position"],
+            "by": user["id"]
         })
 
     elif action == "pause":
@@ -344,7 +363,8 @@ async def control_playback(code: str, action: str = Query(...), position: Option
         await broadcast_to_session(code, {
             "type": "playback",
             "action": "pause",
-            "position": state["playback_position"]
+            "position": state["playback_position"],
+            "by": user["id"]
         })
 
     elif action == "seek" and position is not None:
@@ -354,10 +374,75 @@ async def control_playback(code: str, action: str = Query(...), position: Option
         await broadcast_to_session(code, {
             "type": "playback",
             "action": "seek",
-            "position": position
+            "position": position,
+            "by": user["id"]
         })
 
     return {"ok": True}
+
+
+@router.get("/{code}/messages")
+def get_session_messages(
+    code: str,
+    before_id: Optional[int] = Query(None),
+    after_id: Optional[int] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+):
+    """Chat history, keyset-paginated by message id (offset shifts under live
+    inserts). `before_id` pages older (scroll-up); `after_id` is reconnect
+    catch-up. Always returned ascending."""
+    with get_connection() as conn:
+        session = conn.execute(
+            "SELECT id FROM listening_sessions WHERE code = ?", (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+
+        where = "m.session_id = ?"
+        params = [session["id"]]
+        if after_id is not None:
+            where += " AND m.id > ?"
+            params.append(after_id)
+            order = "ASC"
+        else:
+            if before_id is not None:
+                where += " AND m.id < ?"
+                params.append(before_id)
+            order = "DESC"
+
+        rows = conn.execute(f"""
+            SELECT m.id, m.user_id, u.name as user_name, m.content, m.created_at
+            FROM session_messages m
+            JOIN users u ON m.user_id = u.id
+            WHERE {where}
+            ORDER BY m.id {order}
+            LIMIT ?
+        """, (*params, limit)).fetchall()
+
+        messages = [dict(r) for r in rows]
+        if order == "DESC":
+            messages.reverse()
+
+        for m in messages:
+            m["reactions"] = []
+        if messages:
+            by_id = {m["id"]: m for m in messages}
+            placeholders = ",".join("?" * len(by_id))
+            reactions = conn.execute(f"""
+                SELECT r.message_id, r.emoji, r.user_id, u.name as user_name
+                FROM message_reactions r
+                JOIN users u ON r.user_id = u.id
+                WHERE r.message_id IN ({placeholders})
+                ORDER BY r.created_at
+            """, list(by_id.keys())).fetchall()
+            for r in reactions:
+                by_id[r["message_id"]]["reactions"].append({
+                    "emoji": r["emoji"],
+                    "user_id": r["user_id"],
+                    "user_name": r["user_name"]
+                })
+
+    return {"messages": messages, "has_more": len(rows) == limit}
 
 
 @router.websocket("/{code}/ws")
@@ -395,29 +480,41 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                 return
 
     user_name = "Guest"
-    if user_id:
-        with get_connection() as conn:
+    session_db_id = None
+    with get_connection() as conn:
+        session = conn.execute("SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)).fetchone()
+        if session:
+            session_db_id = session["id"]
+        if user_id:
             user = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
             if user:
                 user_name = user["name"]
-            session = conn.execute("SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)).fetchone()
-            if session:
+            if session_db_id:
                 conn.execute("""
                     INSERT OR IGNORE INTO session_participants (session_id, user_id)
                     VALUES (?, ?)
-                """, (session["id"], user_id))
+                """, (session_db_id, user_id))
 
-    connection_id = user_id if user_id else f"guest_{uuid.uuid4().hex[:8]}"
-    active_sessions[code]["connections"][connection_id] = websocket
-
-    await broadcast_to_session(code, {
-        "type": "user_joined",
-        "user_id": connection_id,
-        "user_name": user_name,
-        "active_count": len(active_sessions[code]["connections"])
-    })
-
+    # Key by a per-socket id: a reconnect or second tab from the same user
+    # must never overwrite (or later delete) another live socket's entry.
     state = active_sessions[code]
+    user_key = user_id if user_id else f"guest_{uuid.uuid4().hex[:8]}"
+    conn_id = uuid.uuid4().hex
+    first_connection = not user_is_connected(state, user_key)
+    state["connections"][conn_id] = {
+        "ws": websocket,
+        "user_key": user_key,
+        "user_name": user_name,
+    }
+
+    if first_connection:
+        await broadcast_to_session(code, {
+            "type": "user_joined",
+            "user_id": user_key,
+            "user_name": user_name,
+            "active_count": len(session_listeners(state))
+        })
+
     current_position = state["playback_position"]
     if state["is_playing"] and state["playback_started_at"]:
         elapsed = int((time.time() - state["playback_started_at"]) * 1000)
@@ -428,16 +525,16 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
         "track_id": state["current_track_id"],
         "is_playing": state["is_playing"],
         "position": current_position,
-        "listeners": [
-            {"user_id": uid, "user_name": get_user_name(uid)}
-            for uid in state["connections"].keys()
-        ]
+        "listeners": session_listeners(state)
     })
 
     try:
+        last_chat_at = 0.0
         while True:
             data = await websocket.receive_json()
-            if data.get("type") == "ping":
+            msg_type = data.get("type")
+
+            if msg_type == "ping":
                 state = active_sessions.get(code, {})
                 current_position = state.get("playback_position", 0)
                 if state.get("is_playing") and state.get("playback_started_at"):
@@ -448,16 +545,100 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                     "position": current_position,
                     "is_playing": state.get("is_playing", False)
                 })
-    except Exception:
-        if code in active_sessions and connection_id in active_sessions[code]["connections"]:
-            del active_sessions[code]["connections"][connection_id]
 
-            await broadcast_to_session(code, {
-                "type": "user_left",
-                "user_id": connection_id,
-                "user_name": user_name,
-                "active_count": len(active_sessions[code]["connections"])
-            })
+            elif msg_type == "chat":
+                # Authed users only — guests are read-only in chat.
+                if not user_id or not session_db_id:
+                    await websocket.send_json({"type": "error", "message": "Sign in to chat"})
+                    continue
+                content = str(data.get("content") or "").strip()
+                if not content or len(content) > 1000:
+                    continue
+                # Light flood guard per connection.
+                now = time.time()
+                if now - last_chat_at < 0.3:
+                    continue
+                last_chat_at = now
+                # ISO UTC so browsers parse it unambiguously (SQLite's
+                # CURRENT_TIMESTAMP format is treated as local time by JS).
+                created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                # Persist before broadcasting: the PK is the authoritative
+                # ordering and a crash must not deliver an unpersisted message.
+                with get_connection() as conn:
+                    cur = conn.execute(
+                        "INSERT INTO session_messages (session_id, user_id, content, created_at) VALUES (?, ?, ?, ?)",
+                        (session_db_id, user_id, content, created_at)
+                    )
+                    msg_id = cur.lastrowid
+                await broadcast_to_session(code, {
+                    "type": "chat_message",
+                    "id": msg_id,
+                    # Echoed back so the sender reconciles its optimistic bubble.
+                    "client_id": data.get("client_id"),
+                    "user_id": user_id,
+                    "user_name": user_name,
+                    "content": content,
+                    "created_at": created_at
+                })
+
+            elif msg_type == "typing":
+                # Ephemeral — relayed, never persisted. Clients filter self.
+                await broadcast_to_session(code, {
+                    "type": "user_typing",
+                    "user_id": user_key,
+                    "user_name": user_name
+                })
+
+            elif msg_type == "reaction":
+                if not user_id or not session_db_id:
+                    continue
+                message_id = data.get("message_id")
+                emoji = str(data.get("emoji") or "")
+                if not isinstance(message_id, int) or not emoji or len(emoji) > 16:
+                    continue
+                with get_connection() as conn:
+                    msg = conn.execute(
+                        "SELECT id FROM session_messages WHERE id = ? AND session_id = ?",
+                        (message_id, session_db_id)
+                    ).fetchone()
+                    if not msg:
+                        continue
+                    existing = conn.execute(
+                        "SELECT 1 FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?",
+                        (message_id, user_id, emoji)
+                    ).fetchone()
+                    if existing:
+                        conn.execute(
+                            "DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?",
+                            (message_id, user_id, emoji)
+                        )
+                        action = "removed"
+                    else:
+                        conn.execute(
+                            "INSERT INTO message_reactions (message_id, user_id, emoji) VALUES (?, ?, ?)",
+                            (message_id, user_id, emoji)
+                        )
+                        action = "added"
+                await broadcast_to_session(code, {
+                    "type": "reaction",
+                    "message_id": message_id,
+                    "emoji": emoji,
+                    "user_id": user_id,
+                    "user_name": user_name,
+                    "action": action
+                })
+    except Exception:
+        state = active_sessions.get(code)
+        # Identity check: only remove OUR entry, never a newer socket's.
+        if state and state["connections"].get(conn_id, {}).get("ws") is websocket:
+            del state["connections"][conn_id]
+            if not user_is_connected(state, user_key):
+                await broadcast_to_session(code, {
+                    "type": "user_left",
+                    "user_id": user_key,
+                    "user_name": user_name,
+                    "active_count": len(session_listeners(state))
+                })
 
 
 @router.delete("/{code}")
@@ -483,9 +664,9 @@ async def end_session(code: str, user: dict = Depends(get_current_user)):
             "type": "session_ended",
             "message": "This room has been closed"
         })
-        for connection_id, ws in list(active_sessions[code]["connections"].items()):
+        for entry in list(active_sessions[code]["connections"].values()):
             try:
-                await ws.close()
+                await entry["ws"].close()
             except Exception:
                 pass
         del active_sessions[code]

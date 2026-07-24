@@ -74,7 +74,7 @@ SPOTIFY_REDIRECT_URI=https://albums.garritsen.dev/api/spotify/callback
 
 ## Database
 
-SQLite with tables: `users`, `albums`, `tracks`, `album_rankings`, `track_rankings`, `listening_sessions`, `session_participants`, `spotify_tokens`
+SQLite with tables: `users`, `albums`, `tracks`, `album_rankings`, `track_rankings`, `listening_sessions`, `session_participants`, `session_messages`, `message_reactions`, `spotify_tokens`
 
 Foreign keys are enabled. Use `get_db_connection()` context manager for transactions.
 
