@@ -467,6 +467,15 @@ export function useSession() {
         }
         break
 
+      case 'mode_change':
+        if (session.value) {
+          session.value.mode = data.mode
+        }
+        if (data.changed_by !== currentUser?.id) {
+          showToast(`${data.changed_by_name || 'Someone'} switched to ${data.mode} mode`)
+        }
+        break
+
       case 'media_change': {
         // Hangout now-playing changed (individual Spotify track/album).
         stopProgressInterval()

@@ -97,6 +97,29 @@ const myAlbumRanking = computed(() =>
   album.value?.album_rankings?.find(r => r.user_id === currentUser.value?.id && r.score != null) || null
 )
 
+// Room mode switching (creator or admin only)
+const canSwitchMode = computed(() =>
+  session.value?.created_by === currentUser.value?.id || !!currentUser.value?.is_admin
+)
+const switchingMode = ref(false)
+
+async function switchMode() {
+  if (switchingMode.value || !session.value) return
+  const target = isHangout.value ? 'listening' : 'hangout'
+  switchingMode.value = true
+  try {
+    const res = await fetch(`/api/sessions/${sessionCode.value}/mode?mode=${target}`, { method: 'POST' })
+    if (res.ok) {
+      session.value.mode = target
+    } else {
+      showToast('Failed to switch mode', 'error')
+    }
+  } catch (e) {
+    showToast('Failed to switch mode', 'error')
+  }
+  switchingMode.value = false
+}
+
 const myCurrentTrackScore = computed(() =>
   currentTrack.value?.rankings?.find(r => r.user_id === currentUser.value?.id && r.score != null)?.score ?? null
 )
@@ -494,6 +517,16 @@ onUnmounted(() => {
                   <Search class="w-4 h-4" />
                   Search music
                 </button>
+                <button
+                  v-if="canSwitchMode"
+                  @click="switchMode"
+                  :disabled="switchingMode"
+                  class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px] disabled:opacity-50"
+                  title="Switch this room to listening mode"
+                >
+                  <Radio class="w-4 h-4" />
+                  To Listening
+                </button>
               </template>
               <template v-else>
                 <button
@@ -511,6 +544,16 @@ onUnmounted(() => {
                 >
                   <Disc3 class="w-4 h-4" />
                   {{ album ? 'Change Album' : 'Select Album' }}
+                </button>
+                <button
+                  v-if="canSwitchMode"
+                  @click="switchMode"
+                  :disabled="switchingMode"
+                  class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px] disabled:opacity-50"
+                  title="Switch this room to hangout mode"
+                >
+                  <MessageCircle class="w-4 h-4" />
+                  To Hangout
                 </button>
               </template>
             </div>

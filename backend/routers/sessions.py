@@ -204,6 +204,7 @@ def get_session(code: str):
             "is_active": bool(session["is_active"]),
             "is_public": bool(session["is_public"]),
             "has_password": bool(session["password"]),
+            "created_by": session["created_by"],
             "created_by_name": session["created_by_name"],
             "mode": session["mode"] or "listening",
             "media": json.loads(session["current_media"]) if session["current_media"] else None,
@@ -289,6 +290,40 @@ async def update_session_track(
         })
 
     return {"ok": True}
+
+
+@router.post("/{code}/mode")
+async def set_session_mode(code: str, mode: str = Query(...), user: dict = Depends(get_current_user)):
+    """Switch a room between listening and hangout mode (creator or admin only).
+
+    Playback state is left untouched — switching to hangout keeps any album
+    playing, and switching back restores the ranking UI around it.
+    """
+    if mode not in ("listening", "hangout"):
+        raise HTTPException(400, "Invalid mode")
+
+    with get_connection() as conn:
+        session = conn.execute(
+            "SELECT created_by, mode FROM listening_sessions WHERE code = ? AND is_active = 1",
+            (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session["created_by"] != user["id"] and not user["is_admin"]:
+            raise HTTPException(403, "Only the room creator can change the mode")
+        if (session["mode"] or "listening") == mode:
+            return {"ok": True, "mode": mode}
+
+        conn.execute("UPDATE listening_sessions SET mode = ? WHERE code = ?", (mode, code))
+
+    await broadcast_to_session(code, {
+        "type": "mode_change",
+        "mode": mode,
+        "changed_by": user["id"],
+        "changed_by_name": user["name"]
+    })
+
+    return {"ok": True, "mode": mode}
 
 
 @router.post("/{code}/album")

@@ -339,3 +339,38 @@ class TestDeleteSession:
         # Session should no longer be found (is_active = 0)
         get_response = client.get(f"/api/sessions/{code}")
         assert get_response.status_code == 404
+
+
+class TestSwitchMode:
+    """Tests for POST /api/sessions/{code}/mode endpoint."""
+
+    def _create(self, client, headers, **body):
+        body.setdefault("name", "Mode Room")
+        return client.post("/api/sessions", json=body, headers=headers).json()["code"]
+
+    def test_creator_can_switch_mode(self, client, admin_headers):
+        code = self._create(client, admin_headers)
+        res = client.post(f"/api/sessions/{code}/mode", params={"mode": "hangout"}, headers=admin_headers)
+        assert res.status_code == 200
+        assert res.json()["mode"] == "hangout"
+        assert client.get(f"/api/sessions/{code}").json()["mode"] == "hangout"
+
+    def test_switch_back_to_listening(self, client, admin_headers):
+        code = self._create(client, admin_headers, mode="hangout")
+        res = client.post(f"/api/sessions/{code}/mode", params={"mode": "listening"}, headers=admin_headers)
+        assert res.status_code == 200
+        assert client.get(f"/api/sessions/{code}").json()["mode"] == "listening"
+
+    def test_non_creator_cannot_switch_mode(self, client, admin_headers, user_headers):
+        code = self._create(client, admin_headers)
+        res = client.post(f"/api/sessions/{code}/mode", params={"mode": "hangout"}, headers=user_headers)
+        assert res.status_code == 403
+
+    def test_invalid_mode_rejected(self, client, admin_headers):
+        code = self._create(client, admin_headers)
+        res = client.post(f"/api/sessions/{code}/mode", params={"mode": "party"}, headers=admin_headers)
+        assert res.status_code == 400
+
+    def test_unknown_session_404(self, client, admin_headers):
+        res = client.post("/api/sessions/NOPE99/mode", params={"mode": "hangout"}, headers=admin_headers)
+        assert res.status_code == 404
