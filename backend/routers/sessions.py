@@ -9,6 +9,7 @@ import random
 import string
 import time
 import uuid
+from urllib.parse import urlparse
 
 from database import get_connection
 from models import ListeningSession, SessionCreate, SessionJoin, SessionMediaSet
@@ -52,8 +53,53 @@ def session_listeners(state: dict) -> list[dict]:
     return [{"user_id": k, "user_name": v} for k, v in seen.items()]
 
 
+def _is_giphy_url(url: str) -> bool:
+    """Only Giphy-hosted media may be sent as a GIF message (no arbitrary
+    image URLs through chat)."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and (host == "giphy.com" or host.endswith(".giphy.com"))
+
+
 def user_is_connected(state: dict, user_key) -> bool:
     return any(e["user_key"] == user_key for e in state["connections"].values())
+
+
+# Net vote score orders the queue (most-wanted plays next); insertion id
+# breaks ties so unvoted items stay FIFO.
+QUEUE_ORDER_SQL = """
+    SELECT q.id, q.type, q.spotify_id, q.name, q.artist, q.image,
+           q.duration_ms, q.added_by, u.name as added_by_name,
+           COALESCE(SUM(CASE WHEN v.vote = 1 THEN 1 END), 0) as likes,
+           COALESCE(SUM(CASE WHEN v.vote = -1 THEN 1 END), 0) as dislikes
+    FROM session_queue q
+    JOIN users u ON q.added_by = u.id
+    LEFT JOIN queue_votes v ON v.queue_item_id = q.id
+    WHERE q.session_id = ?
+    GROUP BY q.id
+    ORDER BY (likes - dislikes) DESC, q.id
+"""
+
+
+def fetch_queue(conn, session_db_id: int) -> list[dict]:
+    """Shared play queue with adder attribution and per-user votes attached."""
+    rows = conn.execute(QUEUE_ORDER_SQL, (session_db_id,)).fetchall()
+    items = [dict(r) for r in rows]
+    for item in items:
+        item["votes"] = []
+    if items:
+        by_id = {item["id"]: item for item in items}
+        placeholders = ",".join("?" * len(by_id))
+        votes = conn.execute(
+            f"SELECT queue_item_id, user_id, vote FROM queue_votes WHERE queue_item_id IN ({placeholders})",
+            list(by_id.keys())
+        ).fetchall()
+        for v in votes:
+            by_id[v["queue_item_id"]]["votes"].append({"user_id": v["user_id"], "vote": v["vote"]})
+    return items
 
 
 @router.get("", response_model=list[ListeningSession])
@@ -134,6 +180,9 @@ def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
         "album_id": data.album_id,
         "current_track_id": first_track["id"] if first_track else None,
         "media": None,
+        # Bumps on every now-playing change; queue advance requests carry the
+        # seq they saw so a stale/duplicate advance is a no-op (no double-skip).
+        "media_seq": 0,
         "is_playing": False,
         "playback_position": 0,
         "playback_started_at": None
@@ -393,6 +442,7 @@ async def set_session_media(code: str, media: SessionMediaSet, user: dict = Depe
     if code in active_sessions:
         state = active_sessions[code]
         state["media"] = media_dict
+        state["media_seq"] = state.get("media_seq", 0) + 1
         state["playback_position"] = 0
         state["is_playing"] = True
         state["playback_started_at"] = time.time()
@@ -400,6 +450,7 @@ async def set_session_media(code: str, media: SessionMediaSet, user: dict = Depe
         await broadcast_to_session(code, {
             "type": "media_change",
             "media": media_dict,
+            "media_seq": state["media_seq"],
             "is_playing": True,
             "position": 0,
             "changed_by": user["id"],
@@ -407,6 +458,254 @@ async def set_session_media(code: str, media: SessionMediaSet, user: dict = Depe
         })
 
     return {"ok": True}
+
+
+@router.get("/{code}/queue")
+def get_queue(code: str):
+    """The room's shared play queue."""
+    with get_connection() as conn:
+        session = conn.execute(
+            "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+        return {"queue": fetch_queue(conn, session["id"])}
+
+
+@router.post("/{code}/queue")
+async def add_to_queue(code: str, item: SessionMediaSet, user: dict = Depends(get_current_user)):
+    """Add a Spotify track/album to the shared queue (any signed-in member).
+
+    If nothing is on yet, the item skips the queue and starts playing —
+    the first pick in an idle room shouldn't sit waiting behind nothing.
+    """
+    media_dict = item.model_dump()
+    with get_connection() as conn:
+        session = conn.execute(
+            "SELECT id, current_media FROM listening_sessions WHERE code = ? AND is_active = 1",
+            (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+
+        state = active_sessions.get(code)
+        current = state["media"] if state else (
+            json.loads(session["current_media"]) if session["current_media"] else None
+        )
+
+        started = current is None
+        if started:
+            conn.execute(
+                "UPDATE listening_sessions SET current_media = ? WHERE id = ?",
+                (json.dumps(media_dict), session["id"])
+            )
+        else:
+            conn.execute("""
+                INSERT INTO session_queue (session_id, added_by, type, spotify_id, name, artist, image, duration_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (session["id"], user["id"], item.type, item.spotify_id, item.name,
+                  item.artist, item.image, item.duration_ms))
+        queue = fetch_queue(conn, session["id"])
+
+    if started and state is not None:
+        state["media"] = media_dict
+        state["media_seq"] = state.get("media_seq", 0) + 1
+        state["playback_position"] = 0
+        state["is_playing"] = True
+        state["playback_started_at"] = time.time()
+        await broadcast_to_session(code, {
+            "type": "media_change",
+            "media": media_dict,
+            "media_seq": state["media_seq"],
+            "is_playing": True,
+            "position": 0,
+            "changed_by": user["id"],
+            "changed_by_name": user["name"]
+        })
+    elif not started:
+        await broadcast_to_session(code, {
+            "type": "queue_update",
+            "action": "added",
+            "item": {**media_dict, "added_by": user["id"], "added_by_name": user["name"]},
+            "by": user["id"],
+            "by_name": user["name"],
+            "queue": queue
+        })
+
+    return {"ok": True, "started": started, "queue": queue}
+
+
+@router.delete("/{code}/queue/{item_id}")
+async def remove_from_queue(code: str, item_id: int, user: dict = Depends(get_current_user)):
+    """Remove a queue item (whoever added it, the room creator, or an admin)."""
+    with get_connection() as conn:
+        session = conn.execute(
+            "SELECT id, created_by FROM listening_sessions WHERE code = ? AND is_active = 1",
+            (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+
+        row = conn.execute(
+            "SELECT added_by, name FROM session_queue WHERE id = ? AND session_id = ?",
+            (item_id, session["id"])
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Queue item not found")
+        if row["added_by"] != user["id"] and session["created_by"] != user["id"] and not user["is_admin"]:
+            raise HTTPException(403, "You can only remove your own queue items")
+
+        conn.execute("DELETE FROM session_queue WHERE id = ?", (item_id,))
+        queue = fetch_queue(conn, session["id"])
+
+    await broadcast_to_session(code, {
+        "type": "queue_update",
+        "action": "removed",
+        "item": {"id": item_id, "name": row["name"]},
+        "by": user["id"],
+        "by_name": user["name"],
+        "queue": queue
+    })
+    return {"ok": True, "queue": queue}
+
+
+@router.post("/{code}/queue/{item_id}/vote")
+async def vote_queue_item(code: str, item_id: int, vote: str = Query(...), user: dict = Depends(get_current_user)):
+    """Like/dislike a queue item — net score reorders the queue.
+
+    Toggle semantics like reactions: voting the same way again removes the
+    vote; voting the other way switches it. One vote per user per item.
+    """
+    if vote not in ("up", "down"):
+        raise HTTPException(400, "Vote must be 'up' or 'down'")
+    value = 1 if vote == "up" else -1
+
+    with get_connection() as conn:
+        session = conn.execute(
+            "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+
+        row = conn.execute(
+            "SELECT id FROM session_queue WHERE id = ? AND session_id = ?",
+            (item_id, session["id"])
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Queue item not found")
+
+        existing = conn.execute(
+            "SELECT vote FROM queue_votes WHERE queue_item_id = ? AND user_id = ?",
+            (item_id, user["id"])
+        ).fetchone()
+        if existing and existing["vote"] == value:
+            conn.execute(
+                "DELETE FROM queue_votes WHERE queue_item_id = ? AND user_id = ?",
+                (item_id, user["id"])
+            )
+        else:
+            conn.execute("""
+                INSERT INTO queue_votes (queue_item_id, user_id, vote) VALUES (?, ?, ?)
+                ON CONFLICT(queue_item_id, user_id) DO UPDATE SET vote = excluded.vote
+            """, (item_id, user["id"], value))
+        queue = fetch_queue(conn, session["id"])
+
+    await broadcast_to_session(code, {
+        "type": "queue_update",
+        "action": "voted",
+        "item": {"id": item_id},
+        "by": user["id"],
+        "by_name": user["name"],
+        "queue": queue
+    })
+    return {"ok": True, "queue": queue}
+
+
+@router.post("/{code}/queue/next")
+async def advance_queue(code: str, seq: Optional[int] = Query(None), user: dict = Depends(get_current_user)):
+    """Pop the queue head into now-playing (auto-advance on track end, or skip).
+
+    Every connected client may report a track end, so advances are guarded by
+    `seq`: the media_seq the client last saw. A request carrying a stale seq
+    means someone already advanced — it's a no-op instead of a double-skip.
+    Guard, pop, and state mutation run without awaits, so concurrent requests
+    can't interleave on the single event loop.
+    """
+    state = active_sessions.get(code)
+    if state is None:
+        raise HTTPException(404, "Session not active")
+
+    if seq is not None and seq != state.get("media_seq", 0):
+        with get_connection() as conn:
+            session = conn.execute(
+                "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
+            ).fetchone()
+            queue = fetch_queue(conn, session["id"]) if session else []
+        return {"ok": True, "advanced": False, "queue": queue}
+
+    with get_connection() as conn:
+        session = conn.execute(
+            "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+
+        # Highest net vote score plays next (same ordering the queue shows).
+        head = conn.execute(QUEUE_ORDER_SQL + " LIMIT 1", (session["id"],)).fetchone()
+
+        media_dict = None
+        if head:
+            conn.execute("DELETE FROM session_queue WHERE id = ?", (head["id"],))
+            media_dict = {
+                "type": head["type"], "spotify_id": head["spotify_id"],
+                "name": head["name"], "artist": head["artist"],
+                "image": head["image"], "duration_ms": head["duration_ms"]
+            }
+            conn.execute(
+                "UPDATE listening_sessions SET current_media = ? WHERE id = ?",
+                (json.dumps(media_dict), session["id"])
+            )
+        queue = fetch_queue(conn, session["id"])
+
+    if head:
+        state["media"] = media_dict
+        state["media_seq"] = state.get("media_seq", 0) + 1
+        state["playback_position"] = 0
+        state["is_playing"] = True
+        state["playback_started_at"] = time.time()
+        await broadcast_to_session(code, {
+            "type": "media_change",
+            "media": media_dict,
+            "media_seq": state["media_seq"],
+            "is_playing": True,
+            "position": 0,
+            "auto": True,
+            "changed_by": None,
+            "changed_by_name": head["added_by_name"]
+        })
+        await broadcast_to_session(code, {
+            "type": "queue_update",
+            "action": "advanced",
+            "item": None,
+            "by": None,
+            "by_name": None,
+            "queue": queue
+        })
+        return {"ok": True, "advanced": True, "queue": queue}
+
+    # Queue drained — stop the server clock so pong doesn't resurrect playback.
+    if state["is_playing"] and state["playback_started_at"]:
+        elapsed = int((time.time() - state["playback_started_at"]) * 1000)
+        state["playback_position"] += elapsed
+    state["is_playing"] = False
+    state["playback_started_at"] = None
+    await broadcast_to_session(code, {
+        "type": "playback",
+        "action": "pause",
+        "position": state["playback_position"],
+        "by": None
+    })
+    return {"ok": True, "advanced": False, "queue": queue}
 
 
 @router.post("/{code}/playback")
@@ -486,7 +785,7 @@ def get_session_messages(
             order = "DESC"
 
         rows = conn.execute(f"""
-            SELECT m.id, m.user_id, u.name as user_name, m.content, m.created_at
+            SELECT m.id, m.user_id, u.name as user_name, m.content, m.kind, m.created_at
             FROM session_messages m
             JOIN users u ON m.user_id = u.id
             WHERE {where}
@@ -547,6 +846,7 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                     "album_id": session["album_id"],
                     "current_track_id": session["current_track_id"],
                     "media": json.loads(session["current_media"]) if session["current_media"] else None,
+                    "media_seq": 0,
                     "is_playing": False,
                     "playback_position": 0,
                     "playback_started_at": None
@@ -596,13 +896,20 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
         elapsed = int((time.time() - state["playback_started_at"]) * 1000)
         current_position += elapsed
 
+    queue = []
+    if session_db_id:
+        with get_connection() as conn:
+            queue = fetch_queue(conn, session_db_id)
+
     await websocket.send_json({
         "type": "sync",
         "track_id": state["current_track_id"],
         "media": state.get("media"),
+        "media_seq": state.get("media_seq", 0),
         "is_playing": state["is_playing"],
         "position": current_position,
-        "listeners": session_listeners(state)
+        "listeners": session_listeners(state),
+        "queue": queue
     })
 
     try:
@@ -631,6 +938,11 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                 content = str(data.get("content") or "").strip()
                 if not content or len(content) > 1000:
                     continue
+                # 'gif' messages carry a Giphy media URL as content; anything
+                # else falls back to plain text so old clients keep working.
+                kind = "gif" if data.get("kind") == "gif" else "text"
+                if kind == "gif" and not _is_giphy_url(content):
+                    continue
                 # Light flood guard per connection.
                 now = time.time()
                 if now - last_chat_at < 0.3:
@@ -643,8 +955,8 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                 # ordering and a crash must not deliver an unpersisted message.
                 with get_connection() as conn:
                     cur = conn.execute(
-                        "INSERT INTO session_messages (session_id, user_id, content, created_at) VALUES (?, ?, ?, ?)",
-                        (session_db_id, user_id, content, created_at)
+                        "INSERT INTO session_messages (session_id, user_id, content, kind, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (session_db_id, user_id, content, kind, created_at)
                     )
                     msg_id = cur.lastrowid
                 await broadcast_to_session(code, {
@@ -655,6 +967,7 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                     "user_id": user_id,
                     "user_name": user_name,
                     "content": content,
+                    "kind": kind,
                     "created_at": created_at
                 })
 

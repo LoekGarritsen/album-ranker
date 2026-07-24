@@ -52,6 +52,7 @@ Create `.env` in backend directory:
 SPOTIFY_CLIENT_ID=<client_id>
 SPOTIFY_CLIENT_SECRET=<client_secret>
 SPOTIFY_REDIRECT_URI=https://albums.garritsen.dev/api/spotify/callback
+GIPHY_API_KEY=<key>   # optional; chat GIF search returns 503 without it
 ```
 
 ## Key Files

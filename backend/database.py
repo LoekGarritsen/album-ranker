@@ -109,10 +109,51 @@ def init_db():
                 session_id INTEGER NOT NULL REFERENCES listening_sessions(id) ON DELETE CASCADE,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 content TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'text',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_session_messages_session
                 ON session_messages(session_id, id);
+
+            -- Shared play queue (hangout mode): FIFO by id, anyone can add
+            CREATE TABLE IF NOT EXISTS session_queue (
+                id INTEGER PRIMARY KEY,
+                session_id INTEGER NOT NULL REFERENCES listening_sessions(id) ON DELETE CASCADE,
+                added_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                type TEXT NOT NULL,
+                spotify_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                artist TEXT DEFAULT '',
+                image TEXT,
+                duration_ms INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_queue_session
+                ON session_queue(session_id, id);
+
+            -- Like/dislike on queue items: net score reorders the queue
+            -- (most-wanted plays next). One vote per user, toggle semantics.
+            CREATE TABLE IF NOT EXISTS queue_votes (
+                queue_item_id INTEGER NOT NULL REFERENCES session_queue(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                vote INTEGER NOT NULL CHECK(vote IN (1, -1)),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (queue_item_id, user_id)
+            );
+
+            -- Personal favorites: saved Spotify tracks/albums for quick re-queue
+            CREATE TABLE IF NOT EXISTS user_favorites (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                type TEXT NOT NULL,
+                spotify_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                artist TEXT DEFAULT '',
+                image TEXT,
+                duration_ms INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, spotify_id)
+            );
 
             -- Emoji reactions on chat messages (toggle semantics)
             CREATE TABLE IF NOT EXISTS message_reactions (
@@ -153,6 +194,16 @@ def init_db():
                 last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_auth_sessions_hash ON auth_sessions(token_hash);
+
+            -- LRCLIB lyrics cache (negative lookups cached with found=0)
+            CREATE TABLE IF NOT EXISTS lyrics_cache (
+                spotify_track_id TEXT PRIMARY KEY,
+                synced_lyrics TEXT,
+                plain_lyrics TEXT,
+                instrumental INTEGER DEFAULT 0,
+                found INTEGER DEFAULT 0,
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
 
         # Migrations for existing databases (must run before admin seeding so
@@ -214,6 +265,12 @@ def _run_migrations(conn):
     # Hangout now-playing (JSON: type/spotify_id/name/artist/image/duration_ms)
     if 'current_media' not in columns:
         conn.execute("ALTER TABLE listening_sessions ADD COLUMN current_media TEXT")
+
+    # Message kind: 'text' or 'gif' (content = GIF URL)
+    cursor = conn.execute("PRAGMA table_info(session_messages)")
+    message_columns = {row[1] for row in cursor.fetchall()}
+    if 'kind' not in message_columns:
+        conn.execute("ALTER TABLE session_messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'")
 
     if 'email' not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Users, Copy, Check, Star, ChevronLeft, Radio, Music, Unplug, Disc3, Search, BarChart3, ListMusic, MessageCircle, ChevronDown, ChevronUp } from 'lucide-vue-next'
+import { Users, Copy, Check, Star, ChevronLeft, Radio, Music, Unplug, Disc3, Search, BarChart3, ListMusic, MessageCircle, ChevronDown, ChevronUp, Mic } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 import AlbumPickerModal from '../components/AlbumPickerModal.vue'
@@ -11,8 +11,11 @@ import SessionStats from '../components/session/SessionStats.vue'
 import SessionChat from '../components/session/SessionChat.vue'
 import MediaSearchModal from '../components/session/MediaSearchModal.vue'
 import MediaNowPlaying from '../components/session/MediaNowPlaying.vue'
+import SessionQueue from '../components/session/SessionQueue.vue'
+import LyricsPanel from '../components/session/LyricsPanel.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 import { useSession } from '../composables/useSession'
+import { useFavorites } from '../composables/useFavorites'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +26,7 @@ const {
   session,
   album,
   media,
+  queue,
   isPlaying,
   playbackPosition,
   currentTrackDuration,
@@ -40,6 +44,10 @@ const {
   notifyTrackChange,
   setAlbum,
   setMedia,
+  addToQueue,
+  removeQueueItem,
+  voteQueueItem,
+  advanceQueue,
   togglePlayback,
   seekTo,
   showToast,
@@ -54,6 +62,7 @@ const {
   isConnected: spotifyConnected,
   isPaused: spotifyPaused,
   position: spotifyPosition,
+  duration: spotifyDuration,
   currentTrack: spotifyCurrentTrack,
   error: spotifyError,
   trackEnded: spotifyTrackEnded,
@@ -67,6 +76,9 @@ const {
   startPositionTracking,
   stopPositionTracking
 } = useSpotifyPlayer()
+
+// Personal favorites (heart on now-playing + quick re-queue in search modal)
+const { loadFavorites, isFavorite, toggleFavorite } = useFavorites()
 
 const loading = ref(true)
 const copied = ref(false)
@@ -134,6 +146,50 @@ const liveSpotifyTrackName = computed(() =>
 
 const headerImage = computed(() => album.value?.cover_url || media.value?.image || null)
 
+// What the lyrics panel should show. Hangout album context: only the local
+// Spotify SDK knows the actual track; other listeners get no lyrics there.
+const lyricsTrack = computed(() => {
+  if (isHangout.value) {
+    const m = media.value
+    if (!m) return null
+    if (m.type === 'track') {
+      return {
+        spotifyId: m.spotify_id,
+        name: m.name,
+        artist: m.artist,
+        album: m.album_name || '',
+        durationMs: m.duration_ms || 0
+      }
+    }
+    const t = spotifyReady.value ? spotifyCurrentTrack.value : null
+    if (!t) return null
+    return {
+      spotifyId: t.id,
+      name: t.name,
+      artist: t.artists?.[0]?.name || m.artist,
+      album: t.album?.name || m.name,
+      durationMs: spotifyDuration.value || 0
+    }
+  }
+  const t = currentTrack.value
+  if (!t) return null
+  return {
+    spotifyId: t.spotify_id,
+    name: t.name,
+    artist: album.value?.artist || '',
+    album: album.value?.name || '',
+    durationMs: t.duration_ms || currentTrackDuration.value || 0
+  }
+})
+
+// Hangout album context has no room clock — Spotify's local clock drives it
+const lyricsPosition = computed(() =>
+  isHangout.value && media.value?.type === 'album' ? spotifyPosition.value : playbackPosition.value
+)
+const lyricsPlaying = computed(() =>
+  isHangout.value && media.value?.type === 'album' ? !spotifyPaused.value : isPlaying.value
+)
+
 async function handleSyncAudio() {
   if (isSyncing.value) return
   isSyncing.value = true
@@ -196,6 +252,29 @@ async function handleSelectMedia(item) {
   showMediaSearch.value = false
   const ok = await setMedia(item)
   if (!ok) showToast('Could not start playback', 'error')
+}
+
+// Modal stays open so several songs can be queued in one go.
+async function handleQueueMedia(item) {
+  const ok = await addToQueue(item)
+  if (!ok) showToast('Could not add to queue', 'error')
+}
+
+async function handleRemoveQueueItem(itemId) {
+  await removeQueueItem(itemId)
+}
+
+function handleVoteQueueItem(itemId, vote) {
+  voteQueueItem(itemId, vote)
+}
+
+async function handleSkipQueue() {
+  await advanceQueue()
+}
+
+async function handleToggleFavoriteMedia() {
+  if (!media.value) return
+  await toggleFavorite(media.value)
 }
 
 async function handleSelectTrack(trackId) {
@@ -350,10 +429,10 @@ watch(spotifyTrackEnded, async (ended) => {
   spotifyTrackEnded.value = false
 
   if (isHangout.value) {
-    // Single song finished — pause the room so the server clock stops.
-    // Album media advances inside Spotify's own context; an end event there
-    // means the whole album finished.
-    await handleTogglePlayback()
+    // Song (or whole album context) finished — pop the shared queue. The
+    // server plays the next item, or pauses the room if the queue is empty.
+    // seq-guarded server-side, so many clients reporting the same end is fine.
+    await advanceQueue()
     return
   }
 
@@ -441,6 +520,7 @@ async function handleSpotifyConnect() {
 
 onMounted(() => {
   loadSession()
+  loadFavorites()
 })
 
 onUnmounted(() => {
@@ -571,9 +651,29 @@ onUnmounted(() => {
             :position="playbackPosition"
             :duration="currentTrackDuration"
             :live-track-name="liveSpotifyTrackName"
+            :is-favorite="media ? isFavorite(media.spotify_id) : false"
             @toggle="handleTogglePlayback"
             @seek="handleSeekTo"
             @search="showMediaSearch = true"
+            @favorite="handleToggleFavoriteMedia"
+          />
+
+          <!-- Shared queue: anyone adds, votes reorder, top item plays next -->
+          <SessionQueue
+            :queue="queue"
+            :current-user-id="currentUser?.id"
+            :can-moderate="canSwitchMode"
+            @add="showMediaSearch = true"
+            @remove="handleRemoveQueueItem"
+            @vote="handleVoteQueueItem"
+            @skip="handleSkipQueue"
+          />
+
+          <LyricsPanel
+            v-if="media"
+            :track="lyricsTrack"
+            :position="lyricsPosition"
+            :playing="lyricsPlaying"
           />
 
           <!-- Spotify status (compact) -->
@@ -691,6 +791,16 @@ onUnmounted(() => {
                   <BarChart3 class="w-4 h-4" />
                   Stats
                 </button>
+                <button
+                  @click="mainTab = 'lyrics'"
+                  role="tab"
+                  :aria-selected="mainTab === 'lyrics'"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
+                  :class="mainTab === 'lyrics' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'"
+                >
+                  <Mic class="w-4 h-4" />
+                  Lyrics
+                </button>
               </div>
 
               <SessionTrackList
@@ -704,10 +814,16 @@ onUnmounted(() => {
                 @detail="openTrackDetail"
               />
               <SessionStats
-                v-else
+                v-else-if="mainTab === 'stats'"
                 :album="album"
                 :current-user="currentUser"
                 @rate-album="openAlbumRating"
+              />
+              <LyricsPanel
+                v-else
+                :track="lyricsTrack"
+                :position="lyricsPosition"
+                :playing="lyricsPlaying"
               />
             </div>
           </template>
@@ -818,6 +934,7 @@ onUnmounted(() => {
       v-if="showMediaSearch"
       @close="showMediaSearch = false"
       @select="handleSelectMedia"
+      @queue="handleQueueMedia"
     />
   </div>
 </template>

@@ -7,6 +7,12 @@ const album = ref(null)
 // Hangout now-playing: individual Spotify track/album, independent of the
 // ranking library ({ type, spotify_id, name, artist, image, duration_ms })
 const media = ref(null)
+// Shared play queue (hangout mode): [{ id, type, spotify_id, name, artist,
+// image, duration_ms, added_by, added_by_name }], FIFO, server-authoritative
+const queue = ref([])
+// Server's media_seq: sent with advance requests so a stale/duplicate
+// track-end report from another client can't double-skip the queue.
+let mediaSeq = 0
 const isPlaying = ref(false)
 const playbackPosition = ref(0)
 const currentTrackDuration = ref(0)
@@ -145,6 +151,12 @@ export function useSession() {
     // Local timer drives advance only for non-Spotify listeners; Spotify users
     // advance via the SDK. Letting both fire double-advances and skips tracks.
     if (spotifyReady.value) return
+    if (isHangout.value) {
+      // Hangout: the server pops the shared queue (seq-guarded, so several
+      // clients reporting the same track end advance it exactly once).
+      advanceQueue()
+      return
+    }
     const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
     if (trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
       // There's a next track, advance to it
@@ -253,6 +265,8 @@ export function useSession() {
             currentTrackDuration.value = data.media.type === 'track' ? data.media.duration_ms : 0
           }
         }
+        if (data.media_seq !== undefined) mediaSeq = data.media_seq
+        if (data.queue !== undefined) queue.value = data.queue || []
         playbackPosition.value = data.position || 0
         isPlaying.value = data.is_playing || false
         listeners.value = data.listeners || []
@@ -480,11 +494,15 @@ export function useSession() {
         // Hangout now-playing changed (individual Spotify track/album).
         stopProgressInterval()
         media.value = data.media
+        if (data.media_seq !== undefined) mediaSeq = data.media_seq
         currentTrackDuration.value = data.media?.type === 'track' ? (data.media.duration_ms || 0) : 0
         playbackPosition.value = data.position || 0
         isPlaying.value = data.is_playing || false
 
-        if (data.changed_by !== currentUser?.id) {
+        if (data.auto) {
+          // Queue advance — attribution is whoever queued the item.
+          showToast(`Up next: "${data.media?.name}"${data.changed_by_name ? ` (added by ${data.changed_by_name})` : ''}`)
+        } else if (data.changed_by !== currentUser?.id) {
           showToast(`${data.changed_by_name || 'Someone'} put on "${data.media?.name}"`)
         }
         // Single ordered playback path for everyone, including the picker —
@@ -494,6 +512,14 @@ export function useSession() {
         }
         if (isPlaying.value) {
           startProgressInterval()
+        }
+        break
+      }
+
+      case 'queue_update': {
+        queue.value = data.queue || []
+        if (data.action === 'added' && data.by !== currentUser?.id) {
+          showToast(`${data.by_name || 'Someone'} queued "${data.item?.name}"`)
         }
         break
       }
@@ -508,6 +534,7 @@ export function useSession() {
           user_id: data.user_id,
           user_name: data.user_name,
           content: data.content,
+          kind: data.kind || 'text',
           created_at: data.created_at,
           reactions: []
         }
@@ -552,6 +579,7 @@ export function useSession() {
         session.value = null
         album.value = null
         media.value = null
+        queue.value = []
         sessionUser.value = null
         isPlaying.value = false
         playbackPosition.value = 0
@@ -657,7 +685,7 @@ export function useSession() {
     }
   }
 
-  function sendChatMessage(content) {
+  function sendChatMessage(content, kind = 'text') {
     const text = (content || '').trim()
     if (!text || text.length > 1000) return false
     if (ws.value?.readyState !== WebSocket.OPEN) {
@@ -673,10 +701,11 @@ export function useSession() {
       user_id: sessionUser.value?.id,
       user_name: sessionUser.value?.name,
       content: text,
+      kind,
       created_at: new Date().toISOString(),
       reactions: []
     })
-    ws.value.send(JSON.stringify({ type: 'chat', content: text, client_id: clientId }))
+    ws.value.send(JSON.stringify({ type: 'chat', content: text, kind, client_id: clientId }))
     return true
   }
 
@@ -805,6 +834,89 @@ export function useSession() {
     }
   }
 
+  // Add a Spotify track/album to the shared queue. Server auto-starts it
+  // instead when nothing is on (returns started: true).
+  async function addToQueue(item) {
+    if (!session.value?.code) return false
+    try {
+      const res = await fetch(`/api/sessions/${session.value.code}/queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: item.type,
+          spotify_id: item.spotify_id,
+          name: item.name,
+          artist: item.artist || '',
+          image: item.image || null,
+          duration_ms: item.duration_ms || 0
+        })
+      })
+      if (!res.ok) return false
+      const data = await res.json()
+      queue.value = data.queue || []
+      showToast(data.started ? `Playing "${item.name}"` : `Queued "${item.name}"`, 'success')
+      return true
+    } catch (e) {
+      console.error('Failed to add to queue:', e)
+      return false
+    }
+  }
+
+  async function removeQueueItem(itemId) {
+    if (!session.value?.code) return false
+    try {
+      const res = await fetch(`/api/sessions/${session.value.code}/queue/${itemId}`, {
+        method: 'DELETE'
+      })
+      if (res.status === 403) {
+        showToast('You can only remove your own queue items', 'error')
+        return false
+      }
+      if (!res.ok) return false
+      const data = await res.json()
+      queue.value = data.queue || []
+      return true
+    } catch (e) {
+      console.error('Failed to remove queue item:', e)
+      return false
+    }
+  }
+
+  // Like/dislike a queue item (toggle). Reordered queue lands via broadcast.
+  async function voteQueueItem(itemId, vote) {
+    if (!session.value?.code) return false
+    try {
+      const res = await fetch(
+        `/api/sessions/${session.value.code}/queue/${itemId}/vote?vote=${vote}`,
+        { method: 'POST' }
+      )
+      if (!res.ok) return false
+      const data = await res.json()
+      queue.value = data.queue || []
+      return true
+    } catch (e) {
+      console.error('Failed to vote on queue item:', e)
+      return false
+    }
+  }
+
+  // Pop the queue head into now-playing. Sends the media_seq we last saw so
+  // simultaneous track-end reports (or double skips) can't advance twice —
+  // the server no-ops stale requests. State lands via the broadcasts.
+  async function advanceQueue() {
+    if (!session.value?.code) return false
+    try {
+      const res = await fetch(
+        `/api/sessions/${session.value.code}/queue/next?seq=${mediaSeq}`,
+        { method: 'POST' }
+      )
+      return res.ok
+    } catch (e) {
+      console.error('Failed to advance queue:', e)
+      return false
+    }
+  }
+
   async function leaveSession() {
     stopProgressInterval()
     if (reconnectTimer) {
@@ -822,6 +934,7 @@ export function useSession() {
     session.value = null
     album.value = null
     media.value = null
+    queue.value = []
     sessionUser.value = null
     isPlaying.value = false
     playbackPosition.value = 0
@@ -1031,6 +1144,7 @@ export function useSession() {
     session,
     album,
     media,
+    queue,
     isPlaying,
     playbackPosition,
     currentTrackDuration,
@@ -1061,6 +1175,10 @@ export function useSession() {
     notifyTrackChange,
     setAlbum,
     setMedia,
+    addToQueue,
+    removeQueueItem,
+    voteQueueItem,
+    advanceQueue,
     loadAlbumData,
     togglePlayback,
     seekTo,

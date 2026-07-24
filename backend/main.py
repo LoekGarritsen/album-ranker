@@ -18,7 +18,7 @@ from database import init_db
 from ratelimit import limiter
 from auth_deps import get_current_user
 from fastapi import Depends
-from routers import auth, users, spotify_routes, albums, rankings, analytics, sessions
+from routers import auth, users, spotify_routes, albums, rankings, analytics, sessions, gifs, lyrics, favorites
 
 
 @asynccontextmanager
@@ -53,6 +53,9 @@ app.include_router(users.router, dependencies=_auth)
 app.include_router(albums.router, dependencies=_auth)
 app.include_router(rankings.router, dependencies=_auth)
 app.include_router(analytics.router, dependencies=_auth)
+app.include_router(gifs.router, dependencies=_auth)
+app.include_router(lyrics.router, dependencies=_auth)
+app.include_router(favorites.router, dependencies=_auth)
 
 
 if __name__ == "__main__":

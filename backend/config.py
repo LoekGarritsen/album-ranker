@@ -12,6 +12,9 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:8401").rstrip("/")
 # Set in backend/.env (never committed). If unset, no admin email is seeded.
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 
+# Giphy GIF search (chat). Empty => GIF search endpoint returns 503.
+GIPHY_API_KEY = os.getenv("GIPHY_API_KEY", "")
+
 # Token lifetimes
 MAGIC_LINK_TTL_MIN = int(os.getenv("MAGIC_LINK_TTL_MIN", "15"))
 SESSION_TTL_DAYS = int(os.getenv("SESSION_TTL_DAYS", "30"))

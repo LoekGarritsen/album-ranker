@@ -239,6 +239,42 @@ class TestWebSocketChat:
         history = client.get(f"/api/sessions/{code}/messages").json()
         assert history["messages"] == []
 
+    def test_gif_message_broadcast_with_kind(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="GIF Test", mode="hangout")
+        gif_url = "https://media2.giphy.com/media/abc123/200w.gif"
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json(); ws.receive_json()
+            ws.send_json({"type": "chat", "content": gif_url, "kind": "gif", "client_id": "gif-1"})
+            echo = ws.receive_json()
+            assert echo["type"] == "chat_message"
+            assert echo["kind"] == "gif"
+            assert echo["content"] == gif_url
+        history = client.get(f"/api/sessions/{code}/messages").json()
+        assert history["messages"][0]["kind"] == "gif"
+        assert history["messages"][0]["content"] == gif_url
+
+    def test_gif_with_non_giphy_url_dropped(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="GIF Validation Test")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json(); ws.receive_json()
+            ws.send_json({"type": "chat", "content": "https://evil.com/x.gif", "kind": "gif"})
+            ws.send_json({"type": "chat", "content": "http://media.giphy.com/x.gif", "kind": "gif"})
+            ws.send_json({"type": "chat", "content": "https://giphy.com.evil.com/x.gif", "kind": "gif"})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+        history = client.get(f"/api/sessions/{code}/messages").json()
+        assert history["messages"] == []
+
+    def test_text_message_defaults_to_kind_text(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="Kind Default Test")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json(); ws.receive_json()
+            ws.send_json({"type": "chat", "content": "plain old text"})
+            echo = ws.receive_json()
+            assert echo["kind"] == "text"
+        history = client.get(f"/api/sessions/{code}/messages").json()
+        assert history["messages"][0]["kind"] == "text"
+
     def test_typing_relayed_not_persisted(self, client, admin_headers, admin_token, user_token):
         code = _make_session(client, admin_headers, name="Typing Test")
         with client.websocket_connect(ws_url(code, admin_token)) as ws1:

@@ -1,12 +1,15 @@
 <script setup>
-import { ref, watch, onUnmounted } from 'vue'
-import { Search, X, Music, Disc3, Play, Loader2 } from 'lucide-vue-next'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { Search, X, Music, Disc3, Play, Plus, Heart, Loader2 } from 'lucide-vue-next'
 import { useModal } from '../../composables/useModal'
+import { useFavorites } from '../../composables/useFavorites'
 
-const emit = defineEmits(['close', 'select'])
+const emit = defineEmits(['close', 'select', 'queue'])
 
 const container = ref(null)
 useModal(container, () => emit('close'))
+
+const { favorites, loadFavorites, isFavorite, toggleFavorite } = useFavorites()
 
 const query = ref('')
 const results = ref({ tracks: [], albums: [] })
@@ -16,6 +19,11 @@ const error = ref('')
 
 let debounceTimer = null
 let requestSeq = 0
+
+// Idle modal shows your favorites for one-tap re-queue
+const showFavorites = computed(() => !searched.value && !searching.value && favorites.value.length > 0)
+
+onMounted(() => loadFavorites())
 
 watch(query, (q) => {
   clearTimeout(debounceTimer)
@@ -48,8 +56,8 @@ async function runSearch() {
   if (seq === requestSeq) searching.value = false
 }
 
-function pick(type, item) {
-  emit('select', { ...item, type })
+function withType(type, item) {
+  return { ...item, type }
 }
 
 function formatDuration(ms) {
@@ -89,6 +97,50 @@ onUnmounted(() => clearTimeout(debounceTimer))
       <div class="max-h-[28rem] overflow-y-auto">
         <div v-if="error" class="p-8 text-center text-red-400 text-sm">{{ error }}</div>
 
+        <!-- Idle: your favorites, one tap to play or queue -->
+        <div v-else-if="showFavorites" class="p-2">
+          <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <Heart class="w-3.5 h-3.5" /> Your Favorites
+          </div>
+          <div
+            v-for="f in favorites"
+            :key="f.spotify_id"
+            class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-xl transition-colors"
+          >
+            <img :src="f.image || '/placeholder.svg'" :alt="f.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
+            <div class="flex-1 min-w-0">
+              <p class="truncate text-sm font-medium">{{ f.name }}</p>
+              <p class="truncate text-xs text-slate-400">{{ f.artist }}<span v-if="f.type === 'album'"> · Album</span></p>
+            </div>
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button
+                @click="toggleFavorite(f)"
+                class="p-2 rounded-lg text-pink-400 hover:bg-white/10 transition-colors"
+                :aria-label="`Remove ${f.name} from favorites`"
+                title="Remove favorite"
+              >
+                <Heart class="w-4 h-4 fill-pink-400" />
+              </button>
+              <button
+                @click="emit('queue', f)"
+                class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                :aria-label="`Add ${f.name} to queue`"
+                title="Add to queue"
+              >
+                <Plus class="w-4 h-4" />
+              </button>
+              <button
+                @click="emit('select', f)"
+                class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                :aria-label="`Play ${f.name} now`"
+                title="Play now"
+              >
+                <Play class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div v-else-if="!searched" class="p-10 text-center text-slate-500">
           <Music class="w-10 h-10 mx-auto mb-3 text-slate-600" />
           <p class="text-sm">Type to search the whole Spotify catalog</p>
@@ -100,24 +152,45 @@ onUnmounted(() => clearTimeout(debounceTimer))
             <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
               <Music class="w-3.5 h-3.5" /> Songs
             </div>
-            <button
+            <div
               v-for="t in results.tracks"
               :key="t.spotify_id"
-              @click="pick('track', t)"
-              class="group w-full text-left flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-xl transition-colors focus-visible:outline-none focus-visible:bg-white/10"
+              class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-xl transition-colors"
             >
-              <div class="relative flex-shrink-0">
-                <img :src="t.image || '/placeholder.svg'" :alt="t.name" class="w-12 h-12 rounded-lg object-cover bg-white/10" />
-                <div class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/50 rounded-lg">
-                  <Play class="w-5 h-5 text-white" />
-                </div>
-              </div>
+              <img :src="t.image || '/placeholder.svg'" :alt="t.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
               <div class="flex-1 min-w-0">
                 <p class="truncate text-sm font-medium">{{ t.name }}</p>
                 <p class="truncate text-xs text-slate-400">{{ t.artist }} · {{ t.album_name }}</p>
               </div>
               <span class="text-xs text-slate-500 tabular-nums flex-shrink-0">{{ formatDuration(t.duration_ms) }}</span>
-            </button>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <button
+                  @click="toggleFavorite(withType('track', t))"
+                  class="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                  :class="isFavorite(t.spotify_id) ? 'text-pink-400' : 'text-slate-500 hover:text-pink-400'"
+                  :aria-label="isFavorite(t.spotify_id) ? `Remove ${t.name} from favorites` : `Add ${t.name} to favorites`"
+                  :title="isFavorite(t.spotify_id) ? 'Remove favorite' : 'Favorite'"
+                >
+                  <Heart class="w-4 h-4" :class="isFavorite(t.spotify_id) ? 'fill-pink-400' : ''" />
+                </button>
+                <button
+                  @click="emit('queue', withType('track', t))"
+                  class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                  :aria-label="`Add ${t.name} to queue`"
+                  title="Add to queue"
+                >
+                  <Plus class="w-4 h-4" />
+                </button>
+                <button
+                  @click="emit('select', withType('track', t))"
+                  class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                  :aria-label="`Play ${t.name} now`"
+                  title="Play now"
+                >
+                  <Play class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Albums -->
@@ -125,24 +198,45 @@ onUnmounted(() => clearTimeout(debounceTimer))
             <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
               <Disc3 class="w-3.5 h-3.5" /> Albums
             </div>
-            <button
+            <div
               v-for="a in results.albums"
               :key="a.spotify_id"
-              @click="pick('album', a)"
-              class="group w-full text-left flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-xl transition-colors focus-visible:outline-none focus-visible:bg-white/10"
+              class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-xl transition-colors"
             >
-              <div class="relative flex-shrink-0">
-                <img :src="a.image || '/placeholder.svg'" :alt="a.name" class="w-12 h-12 rounded-lg object-cover bg-white/10" />
-                <div class="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/50 rounded-lg">
-                  <Play class="w-5 h-5 text-white" />
-                </div>
-              </div>
+              <img :src="a.image || '/placeholder.svg'" :alt="a.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
               <div class="flex-1 min-w-0">
                 <p class="truncate text-sm font-medium">{{ a.name }}</p>
                 <p class="truncate text-xs text-slate-400">{{ a.artist }}</p>
               </div>
               <span class="text-xs text-slate-500 flex-shrink-0">{{ a.total_tracks }} tracks</span>
-            </button>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <button
+                  @click="toggleFavorite(withType('album', a))"
+                  class="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                  :class="isFavorite(a.spotify_id) ? 'text-pink-400' : 'text-slate-500 hover:text-pink-400'"
+                  :aria-label="isFavorite(a.spotify_id) ? `Remove ${a.name} from favorites` : `Add ${a.name} to favorites`"
+                  :title="isFavorite(a.spotify_id) ? 'Remove favorite' : 'Favorite'"
+                >
+                  <Heart class="w-4 h-4" :class="isFavorite(a.spotify_id) ? 'fill-pink-400' : ''" />
+                </button>
+                <button
+                  @click="emit('queue', withType('album', a))"
+                  class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                  :aria-label="`Add ${a.name} to queue`"
+                  title="Add to queue"
+                >
+                  <Plus class="w-4 h-4" />
+                </button>
+                <button
+                  @click="emit('select', withType('album', a))"
+                  class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                  :aria-label="`Play ${a.name} now`"
+                  title="Play now"
+                >
+                  <Play class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
 
           <div v-if="!results.tracks.length && !results.albums.length" class="p-8 text-center text-slate-500 text-sm">

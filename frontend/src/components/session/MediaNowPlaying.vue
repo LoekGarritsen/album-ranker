@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { Play, Pause, Music, Disc3, Search } from 'lucide-vue-next'
+import { Play, Pause, Music, Disc3, Search, Heart } from 'lucide-vue-next'
 
 const props = defineProps({
   media: { type: Object, default: null },
@@ -8,10 +8,11 @@ const props = defineProps({
   position: { type: Number, default: 0 },
   duration: { type: Number, default: 0 },
   // Spotify's own now-playing (album context advances tracks by itself)
-  liveTrackName: { type: String, default: null }
+  liveTrackName: { type: String, default: null },
+  isFavorite: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['toggle', 'seek', 'search'])
+const emit = defineEmits(['toggle', 'seek', 'search', 'favorite'])
 
 const isTrack = computed(() => props.media?.type === 'track')
 
@@ -75,6 +76,15 @@ function handleProgressClick(event) {
               ♪ {{ liveTrackName }}
             </p>
           </div>
+          <button
+            @click="emit('favorite')"
+            class="p-2.5 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
+            :class="isFavorite ? 'text-pink-400' : 'text-slate-400 hover:text-pink-400'"
+            :aria-label="isFavorite ? 'Remove from favorites' : 'Add to favorites'"
+            :aria-pressed="isFavorite"
+          >
+            <Heart class="w-5 h-5" :class="isFavorite ? 'fill-pink-400' : ''" />
+          </button>
           <button
             @click="emit('toggle')"
             class="p-3 bg-accent-primary text-black rounded-full hover:bg-accent-primary/90 transition-colors flex-shrink-0"
