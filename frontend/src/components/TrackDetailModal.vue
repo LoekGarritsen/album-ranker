@@ -1,6 +1,7 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { X, Star, Loader2, MessageCircle } from 'lucide-vue-next'
+import { useModal } from '../composables/useModal'
 
 const props = defineProps({
   trackId: { type: Number, required: true },
@@ -54,26 +55,21 @@ function handleRate() {
   }
 }
 
-function handleKeydown(e) {
-  if (e.key === 'Escape') emit('close')
-}
+const container = ref(null)
+useModal(container, () => emit('close'))
 
-onMounted(() => {
-  loadTrack()
-  window.addEventListener('keydown', handleKeydown)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown)
-})
+onMounted(loadTrack)
 </script>
 
 <template>
   <div
     class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80"
     @click.self="emit('close')"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Track details"
   >
-    <div class="bg-bg-secondary border border-white/10 w-full sm:max-w-4xl max-h-[90vh] sm:max-h-[85vh] rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl">
+    <div ref="container" class="bg-bg-secondary border border-white/10 w-full sm:max-w-4xl max-h-[90vh] sm:max-h-[85vh] rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl">
       <!-- Header -->
       <div class="p-3 sm:p-4 border-b border-white/10 flex items-center gap-3 sm:gap-4 bg-bg-primary/50">
         <img

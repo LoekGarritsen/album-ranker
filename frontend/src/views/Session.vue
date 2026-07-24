@@ -1,10 +1,16 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Play, Pause, Users, Copy, Check, Star, ChevronLeft, Radio, SkipBack, SkipForward, Volume2, Music, Unplug, RefreshCw, Info, Disc3, Search, X, BarChart3, TrendingUp, TrendingDown, MessageCircle, ChevronDown, ChevronUp } from 'lucide-vue-next'
+import { Users, Copy, Check, Star, ChevronLeft, Radio, Music, Unplug, Disc3, Search, BarChart3, ListMusic, MessageCircle, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
+import AlbumPickerModal from '../components/AlbumPickerModal.vue'
+import NowPlayingCard from '../components/session/NowPlayingCard.vue'
+import SessionTrackList from '../components/session/SessionTrackList.vue'
+import SessionStats from '../components/session/SessionStats.vue'
 import SessionChat from '../components/session/SessionChat.vue'
+import MediaSearchModal from '../components/session/MediaSearchModal.vue'
+import MediaNowPlaying from '../components/session/MediaNowPlaying.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 import { useSession } from '../composables/useSession'
 
@@ -16,12 +22,12 @@ const currentUser = inject('currentUser')
 const {
   session,
   album,
+  media,
   isPlaying,
   playbackPosition,
   currentTrackDuration,
   listeners,
   currentTrack,
-  progressPercent,
   isInSession,
   hasAlbum,
   isHangout,
@@ -33,13 +39,12 @@ const {
   selectTrack,
   notifyTrackChange,
   setAlbum,
+  setMedia,
   togglePlayback,
   seekTo,
   showToast,
-  formatDuration,
   startProgressInterval,
   stopProgressInterval,
-  connectWebSocket,
   syncWithServer
 } = useSession()
 
@@ -60,8 +65,7 @@ const {
   pause: spotifyPause,
   seek: spotifySeek,
   startPositionTracking,
-  stopPositionTracking,
-  cleanup: cleanupSpotify
+  stopPositionTracking
 } = useSpotifyPlayer()
 
 const loading = ref(true)
@@ -72,34 +76,15 @@ const isSyncing = ref(false)
 const isAutoAdvancing = ref(false)
 const isSelectingTrack = ref(false) // Prevents watcher interference during track selection
 
-async function handleSyncAudio() {
-  if (isSyncing.value) return
-  isSyncing.value = true
-  await syncWithServer()
-  isSyncing.value = false
-}
-
-// Rating modal state
+// Modals
 const ratingModal = ref({ show: false, type: null, item: null, album: null })
-
-// Track detail modal state
 const trackDetailModal = ref({ show: false, trackId: null })
-
-// Album picker state
 const showAlbumPicker = ref(false)
-const allAlbums = ref([])
-const albumSearch = ref('')
-const loadingAlbums = ref(false)
 const settingAlbum = ref(false)
+const showMediaSearch = ref(false)
 
-const filteredAlbums = computed(() => {
-  if (!albumSearch.value.trim()) return allAlbums.value
-  const search = albumSearch.value.toLowerCase()
-  return allAlbums.value.filter(a =>
-    a.name.toLowerCase().includes(search) ||
-    a.artist.toLowerCase().includes(search)
-  )
-})
+// Listening mode main column tab
+const mainTab = ref('tracks')
 
 const sessionCode = computed(() => route.params.code)
 
@@ -108,93 +93,30 @@ const sessionCode = computed(() => route.params.code)
 // (spotifyCurrentTrack watcher) instead of driving each track end.
 const spotifyContextMode = computed(() => spotifyReady.value && !!album.value?.spotify_id)
 
-// --- Live session stats (computed from rankings already in memory) ---
-
-function getTrackAvg(track) {
-  const scored = (track.rankings || []).filter(r => r.score != null)
-  if (!scored.length) return null
-  return scored.reduce((sum, r) => sum + r.score, 0) / scored.length
-}
-
-const myRatedCount = computed(() => {
-  if (!album.value?.tracks || !currentUser.value) return 0
-  return album.value.tracks.filter(t =>
-    t.rankings?.some(r => r.user_id === currentUser.value.id && r.score != null)
-  ).length
-})
-
-const totalTracks = computed(() => album.value?.tracks?.length || 0)
-
 const myAlbumRanking = computed(() =>
   album.value?.album_rankings?.find(r => r.user_id === currentUser.value?.id && r.score != null) || null
 )
 
-const groupAlbumAvg = computed(() => {
-  const scores = (album.value?.album_rankings || []).filter(r => r.score != null).map(r => r.score)
-  if (!scores.length) return null
-  return scores.reduce((a, b) => a + b, 0) / scores.length
-})
-
-const groupTrackAvg = computed(() => {
-  const scores = (album.value?.tracks || []).flatMap(t =>
-    (t.rankings || []).filter(r => r.score != null).map(r => r.score)
-  )
-  if (!scores.length) return null
-  return scores.reduce((a, b) => a + b, 0) / scores.length
-})
-
-// Per-user running average across this album's tracks
-const userTrackStats = computed(() => {
-  const map = new Map()
-  for (const t of album.value?.tracks || []) {
-    for (const r of t.rankings || []) {
-      if (r.score == null) continue
-      const entry = map.get(r.user_id) || { user_id: r.user_id, user_name: r.user_name, sum: 0, count: 0 }
-      entry.sum += r.score
-      entry.count++
-      map.set(r.user_id, entry)
-    }
-  }
-  return [...map.values()]
-    .map(e => ({ ...e, avg: e.sum / e.count }))
-    .sort((a, b) => b.count - a.count || b.avg - a.avg)
-})
-
-const ratedTrackAverages = computed(() =>
-  (album.value?.tracks || [])
-    .map(t => ({ track: t, avg: getTrackAvg(t) }))
-    .filter(x => x.avg != null)
+const myCurrentTrackScore = computed(() =>
+  currentTrack.value?.rankings?.find(r => r.user_id === currentUser.value?.id && r.score != null)?.score ?? null
 )
 
-const bestTrack = computed(() => {
-  if (!ratedTrackAverages.value.length) return null
-  return ratedTrackAverages.value.reduce((a, b) => (b.avg > a.avg ? b : a))
-})
+// Album context: what Spotify is actually playing right now (hangout albums
+// advance track-by-track inside the SDK; mirror the name for the room card)
+const liveSpotifyTrackName = computed(() =>
+  spotifyReady.value && media.value?.type === 'album' && !spotifyPaused.value
+    ? spotifyCurrentTrack.value?.name || null
+    : null
+)
 
-const worstTrack = computed(() => {
-  if (ratedTrackAverages.value.length < 2) return null
-  return ratedTrackAverages.value.reduce((a, b) => (b.avg < a.avg ? b : a))
-})
+const headerImage = computed(() => album.value?.cover_url || media.value?.image || null)
 
-const albumIsMultiDisc = computed(() => {
-  if (!album.value?.tracks?.length) return false
-  return album.value.tracks.some(t => (t.disc_number || 1) > 1)
-})
-
-const groupedTracks = computed(() => {
-  if (!album.value?.tracks) return []
-  const groups = []
-  let currentDisc = null
-  for (const track of album.value.tracks) {
-    const disc = track.disc_number || 1
-    if (disc !== currentDisc) {
-      groups.push({ type: 'disc', disc_number: disc })
-      currentDisc = disc
-    }
-    groups.push({ type: 'track', track })
-  }
-  return groups
-})
+async function handleSyncAudio() {
+  if (isSyncing.value) return
+  isSyncing.value = true
+  await syncWithServer()
+  isSyncing.value = false
+}
 
 async function loadSession() {
   if (!sessionCode.value) return
@@ -204,20 +126,17 @@ async function loadSession() {
   try {
     // Check if already in this session
     if (session.value?.code === sessionCode.value) {
-      // Already connected, just refresh Spotify state
       loading.value = false
       initSpotifyIfNeeded()
       return
     }
 
-    // Join the session using global store
     const success = await joinSession(sessionCode.value, currentUser.value)
     if (!success) {
       router.push('/')
       return
     }
 
-    // Start progress interval if playing (for non-Spotify users)
     if (isPlaying.value && !spotifyReady.value) {
       startProgressInterval()
     }
@@ -241,39 +160,19 @@ async function initSpotifyIfNeeded() {
   }
 }
 
-async function openAlbumPicker() {
-  showAlbumPicker.value = true
-  albumSearch.value = ''
-  if (allAlbums.value.length === 0) {
-    await loadAllAlbums()
-  }
-}
-
-function closeAlbumPicker() {
-  showAlbumPicker.value = false
-  albumSearch.value = ''
-}
-
-async function loadAllAlbums() {
-  loadingAlbums.value = true
-  try {
-    const res = await fetch('/api/albums')
-    if (res.ok) {
-      allAlbums.value = await res.json()
-    }
-  } catch (e) {
-    console.error('Failed to load albums:', e)
-  }
-  loadingAlbums.value = false
-}
-
 async function handleSelectAlbum(selectedAlbum) {
   settingAlbum.value = true
   const success = await setAlbum(selectedAlbum.id, currentUser.value)
   settingAlbum.value = false
   if (success) {
-    closeAlbumPicker()
+    showAlbumPicker.value = false
   }
+}
+
+async function handleSelectMedia(item) {
+  showMediaSearch.value = false
+  const ok = await setMedia(item)
+  if (!ok) showToast('Could not start playback', 'error')
 }
 
 async function handleSelectTrack(trackId) {
@@ -290,19 +189,11 @@ async function handleSelectTrack(trackId) {
 }
 
 async function handleTogglePlayback() {
-  // Just toggle room state - the isPlaying watcher handles Spotify sync
   await togglePlayback(currentUser.value)
 }
 
 async function handleSeekTo(percent) {
-  // seekTo already seeks Spotify when connected
   await seekTo(percent, currentUser.value)
-}
-
-function handleProgressClick(event) {
-  const rect = event.currentTarget.getBoundingClientRect()
-  const percent = ((event.clientX - rect.left) / rect.width) * 100
-  handleSeekTo(Math.max(0, Math.min(100, percent)))
 }
 
 async function handleSkipPrevious() {
@@ -351,6 +242,15 @@ function handleTrackDetailRate(track) {
   openTrackRating(track)
 }
 
+async function postRating(isAlbum, body) {
+  const res = await fetch(`/api/rankings/${isAlbum ? 'album' : 'track'}?session_code=${sessionCode.value}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  return res.ok
+}
+
 async function submitRating(data) {
   const isAlbum = ratingModal.value.type === 'album'
   const body = isAlbum
@@ -358,32 +258,22 @@ async function submitRating(data) {
     : { track_id: ratingModal.value.item.id, score: data.score, comment: data.comment || null }
 
   try {
-    const res = await fetch(`/api/rankings/${isAlbum ? 'album' : 'track'}?session_code=${sessionCode.value}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
-
-    if (res.ok) {
-      closeRating()
-    } else {
-      showToast('Failed to save rating', 'error')
-    }
+    if (await postRating(isAlbum, body)) closeRating()
+    else showToast('Failed to save rating', 'error')
   } catch (e) {
     showToast('Failed to save rating', 'error')
   }
 }
 
-function getScoreColor(score) {
-  if (!score) return 'text-slate-500'
-  if (score >= 8) return 'text-green-400'
-  if (score >= 6) return 'text-yellow-400'
-  if (score >= 4) return 'text-orange-400'
-  return 'text-red-400'
-}
-
-function getUserRanking(rankings) {
-  return rankings?.find(r => r.user_id === currentUser.value?.id)
+// One-tap rating from the now-playing card
+async function quickRateCurrentTrack(score) {
+  if (!currentTrack.value) return
+  try {
+    const ok = await postRating(false, { track_id: currentTrack.value.id, score, comment: null })
+    if (!ok) showToast('Failed to save rating', 'error')
+  } catch (e) {
+    showToast('Failed to save rating', 'error')
+  }
 }
 
 // Auto-advance to next track
@@ -431,12 +321,19 @@ watch(() => spotifyCurrentTrack.value?.id, async (newSpotifyId, oldSpotifyId) =>
 })
 
 // Watch for Spotify track end event (more reliable than position-based detection)
-// This fires directly from the SDK when a track naturally finishes.
-// Only used as fallback when NOT in context mode (album lacks a Spotify context).
 watch(spotifyTrackEnded, async (ended) => {
   if (!ended || isAutoAdvancing.value || isSelectingTrack.value || !isPlaying.value) return
   // Reset immediately to prevent double-firing
   spotifyTrackEnded.value = false
+
+  if (isHangout.value) {
+    // Single song finished — pause the room so the server clock stops.
+    // Album media advances inside Spotify's own context; an end event there
+    // means the whole album finished.
+    await handleTogglePlayback()
+    return
+  }
+
   if (spotifyContextMode.value) {
     // Spotify advances mid-album natively; an end event here means the album
     // finished — pause the room so the server clock stops too.
@@ -453,9 +350,16 @@ watch(spotifyTrackEnded, async (ended) => {
 watch(spotifyPosition, async (spotifyPos) => {
   if (!spotifyReady.value || isSyncing.value || isSelectingTrack.value) return
 
+  // Hangout: Spotify is the clock authority (we started it) — mirror it into
+  // the room card. Album media has no single-track bar, skip entirely.
+  if (isHangout.value) {
+    if (media.value?.type === 'track' && !spotifyPaused.value) {
+      playbackPosition.value = spotifyPos
+    }
+    return
+  }
+
   // Context mode: Spotify's clock is authoritative — mirror it INTO the room.
-  // Seeking the SDK to the lagging local timer instead yanks playback
-  // backward repeatedly (replays the same track).
   if (spotifyContextMode.value) {
     if (!spotifyPaused.value) playbackPosition.value = spotifyPos
     return
@@ -477,19 +381,15 @@ watch(spotifyPosition, async (spotifyPos) => {
   }
 })
 
-// NOTE: Spotify play/pause sync now happens inside useSession's WebSocket
-// handlers, ordered with the state change — a watcher here raced successive
-// broadcasts (late pause() killed a fresh play(), replaying/stopping tracks).
-
 // Spotify became ready while the room is already playing (joined a live
 // room) — sync to the room instead of sitting silent until a manual sync.
 watch(spotifyReady, async (ready, wasReady) => {
-  if (ready && !wasReady && isPlaying.value && currentTrack.value?.spotify_id) {
+  if (ready && !wasReady && isPlaying.value && (currentTrack.value?.spotify_id || media.value?.spotify_id)) {
     await handleSyncAudio()
   }
 })
 
-// Hangout rooms are chat-first: chat starts open
+// Hangout rooms are chat-first: chat is the main panel, always open
 watch(isHangout, (hangout) => {
   if (hangout) setChatOpen(true)
 }, { immediate: true })
@@ -510,34 +410,27 @@ async function handleSpotifyConnect() {
   if (spotifyConnected.value) {
     await disconnectSpotify()
   } else {
+    // Come back to this room after the OAuth round-trip
+    try { localStorage.setItem('spotifyReturnPath', route.fullPath) } catch {}
     await connectSpotify()
-  }
-}
-
-function handleKeydown(e) {
-  if (e.key === 'Escape' && showAlbumPicker.value) {
-    closeAlbumPicker()
   }
 }
 
 onMounted(() => {
   loadSession()
-  window.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
   // Don't cleanup session - keep it running in background
-  // Only cleanup Spotify tracking for this view
   stopPositionTracking()
-  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
 <template>
   <div>
-    <router-link to="/" class="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-6 py-2 min-h-[44px]">
+    <router-link to="/rooms" class="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-4 py-2 min-h-[44px]">
       <ChevronLeft class="w-4 h-4" />
-      Back to Albums
+      All Rooms
     </router-link>
 
     <div v-if="loading" class="text-center py-12 text-slate-400">
@@ -545,20 +438,20 @@ onUnmounted(() => {
     </div>
 
     <div v-else-if="session">
-      <!-- Session Header -->
+      <!-- Session Header (full width) -->
       <div class="glass p-4 sm:p-6 mb-4">
         <div class="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6">
-          <div class="relative">
+          <div class="relative flex-shrink-0">
             <img
-              v-if="album?.cover_url"
-              :src="album.cover_url"
+              v-if="headerImage"
+              :src="headerImage"
               class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl object-cover bg-white/10"
             />
             <div v-else class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl bg-white/10 flex items-center justify-center">
-              <Disc3 class="w-12 h-12 text-slate-500" />
+              <component :is="isHangout ? MessageCircle : Disc3" class="w-12 h-12 text-slate-500" />
             </div>
           </div>
-          <div class="flex-1 text-center sm:text-left">
+          <div class="flex-1 text-center sm:text-left min-w-0">
             <div class="flex items-center justify-center sm:justify-start gap-2 text-accent-primary text-sm mb-2">
               <component :is="isHangout ? MessageCircle : Radio" class="w-4 h-4 animate-pulse" />
               {{ session.name }}
@@ -566,16 +459,20 @@ onUnmounted(() => {
                 Hangout
               </span>
             </div>
-            <h1 v-if="album" class="text-xl sm:text-2xl font-heading font-bold mb-1">{{ album.name }}</h1>
-            <h1 v-else class="text-xl sm:text-2xl font-heading font-bold mb-1 text-slate-400">
-              {{ isHangout ? 'Hanging out' : 'No album selected' }}
-            </h1>
-            <p v-if="album" class="text-slate-400 mb-4">{{ album.artist }}</p>
-            <p v-else class="text-slate-500 mb-4">
-              {{ isHangout ? 'Chat with friends — add music anytime' : 'Select an album to start listening' }}
-            </p>
+            <template v-if="isHangout">
+              <h1 class="text-xl sm:text-2xl font-heading font-bold mb-1 truncate">
+                {{ media?.name || 'Hanging out' }}
+              </h1>
+              <p class="text-slate-400 mb-4 truncate">{{ media?.artist || 'Chat with friends — put on anything from Spotify' }}</p>
+            </template>
+            <template v-else>
+              <h1 v-if="album" class="text-xl sm:text-2xl font-heading font-bold mb-1 truncate">{{ album.name }}</h1>
+              <h1 v-else class="text-xl sm:text-2xl font-heading font-bold mb-1 text-slate-400">No album selected</h1>
+              <p v-if="album" class="text-slate-400 mb-4 truncate">{{ album.artist }}</p>
+              <p v-else class="text-slate-500 mb-4">Pick an album from the library to rank together</p>
+            </template>
 
-            <!-- Session Code + Change Album -->
+            <!-- Code + mode-specific actions -->
             <div class="flex items-center justify-center sm:justify-start gap-3 flex-wrap">
               <div class="px-4 py-2 bg-white/10 rounded-lg font-mono text-base sm:text-lg tracking-wider">
                 {{ sessionCode }}
@@ -583,306 +480,264 @@ onUnmounted(() => {
               <button
                 @click="copyCode"
                 class="p-2 glass glass-hover rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center"
+                aria-label="Copy room code"
               >
                 <Check v-if="copied" class="w-5 h-5 text-green-400" />
                 <Copy v-else class="w-5 h-5" />
               </button>
-              <button
-                v-if="album"
-                @click="openAlbumRating"
-                class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px]"
-                :class="myAlbumRanking ? 'text-yellow-400' : ''"
-              >
-                <Star class="w-4 h-4" :class="myAlbumRanking ? 'fill-yellow-400' : ''" />
-                {{ myAlbumRanking ? `Album: ${myAlbumRanking.score.toFixed(1)}` : 'Rate Album' }}
-              </button>
-              <button
-                @click="openAlbumPicker"
-                class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px]"
-              >
-                <Disc3 class="w-4 h-4" />
-                {{ album ? 'Change Album' : 'Select Album' }}
-              </button>
+
+              <template v-if="isHangout">
+                <button
+                  @click="showMediaSearch = true"
+                  class="flex items-center gap-2 px-4 py-2 bg-accent-primary text-black font-medium rounded-lg text-sm min-h-[44px] hover:bg-accent-primary/90 transition-colors"
+                >
+                  <Search class="w-4 h-4" />
+                  Search music
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  v-if="album"
+                  @click="openAlbumRating"
+                  class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px]"
+                  :class="myAlbumRanking ? 'text-yellow-400' : ''"
+                >
+                  <Star class="w-4 h-4" :class="myAlbumRanking ? 'fill-yellow-400' : ''" />
+                  {{ myAlbumRanking ? `Album: ${myAlbumRanking.score.toFixed(1)}` : 'Rate Album' }}
+                </button>
+                <button
+                  @click="showAlbumPicker = true"
+                  class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px]"
+                >
+                  <Disc3 class="w-4 h-4" />
+                  {{ album ? 'Change Album' : 'Select Album' }}
+                </button>
+              </template>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Live Listeners -->
-      <div class="glass p-4 mb-4">
-        <div class="flex items-center gap-3 mb-3">
-          <Users class="w-5 h-5 text-accent-primary" />
-          <span class="font-medium">{{ isHangout ? 'Here Now' : 'Listening Now' }}</span>
-          <span class="text-sm text-slate-400">({{ listeners.length }})</span>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <div
-            v-for="listener in listeners"
-            :key="listener.user_id"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
-            :class="listener.user_id === currentUser?.id ? 'bg-accent-primary/20 border border-accent-primary/50' : 'bg-white/10'"
-          >
-            <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-            <span>{{ listener.user_name }}</span>
-            <span v-if="listener.user_id === currentUser?.id" class="text-xs text-accent-primary">(you)</span>
-          </div>
-          <div v-if="listeners.length === 0" class="text-slate-500 text-sm">
-            No one is listening yet
-          </div>
-        </div>
-      </div>
+      <!-- ===================== HANGOUT LAYOUT ===================== -->
+      <div v-if="isHangout" class="grid gap-4 lg:grid-cols-3 items-start">
+        <!-- Sidebar: now playing + people (mobile: above chat) -->
+        <div class="space-y-4 lg:order-2">
+          <MediaNowPlaying
+            :media="media"
+            :is-playing="isPlaying"
+            :position="playbackPosition"
+            :duration="currentTrackDuration"
+            :live-track-name="liveSpotifyTrackName"
+            @toggle="handleTogglePlayback"
+            @seek="handleSeekTo"
+            @search="showMediaSearch = true"
+          />
 
-      <!-- Chat (hangout rooms start open; listening rooms collapsible) -->
-      <div class="glass mb-4 overflow-hidden">
-        <button
-          @click="toggleChat"
-          class="w-full flex items-center gap-3 p-4 min-h-[44px] text-left hover:bg-white/5 transition-colors"
-        >
-          <MessageCircle class="w-5 h-5 text-accent-primary" />
-          <span class="font-medium">Chat</span>
-          <span
-            v-if="unreadChatCount > 0 && !chatOpen"
-            class="px-2 py-0.5 bg-accent-primary text-black text-xs font-bold rounded-full"
-          >
-            {{ unreadChatCount }}
-          </span>
-          <component :is="chatOpen ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400 ml-auto" />
-        </button>
-        <SessionChat v-if="chatOpen" :current-user="currentUser" :tall="isHangout" />
-      </div>
-
-      <!-- Compact album hint (hangout: music is optional) -->
-      <div v-if="!hasAlbum && isHangout" class="glass p-4 mb-4 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3 text-slate-400 min-w-0">
-          <Disc3 class="w-5 h-5 flex-shrink-0" />
-          <span class="text-sm truncate">No music yet — add an album anytime</span>
-        </div>
-        <button
-          @click="openAlbumPicker"
-          class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors min-h-[44px] flex-shrink-0"
-        >
-          Select Album
-        </button>
-      </div>
-
-      <!-- Album Picker Prompt (when no album) -->
-      <div v-if="!hasAlbum && !isHangout" class="glass p-8 mb-4 text-center">
-        <Disc3 class="w-16 h-16 mx-auto mb-4 text-slate-500" />
-        <h2 class="text-xl font-heading font-medium text-slate-300 mb-2">No album selected</h2>
-        <p class="text-slate-500 mb-6">Choose an album to start listening together</p>
-        <button
-          @click="openAlbumPicker"
-          class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
-        >
-          <Disc3 class="w-5 h-5" />
-          Select Album
-        </button>
-      </div>
-
-      <!-- Spotify Connect Banner (only when album is selected) -->
-      <div v-if="hasAlbum && !spotifyConnected" class="glass p-4 mb-4 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 bg-[#1DB954] rounded-full flex items-center justify-center">
-            <Music class="w-5 h-5 text-black" />
-          </div>
-          <div>
-            <p class="font-medium text-sm sm:text-base">Connect Spotify</p>
-            <p class="text-xs text-slate-400">Play music in sync with others (Premium required)</p>
-          </div>
-        </div>
-        <button
-          @click="handleSpotifyConnect"
-          class="px-4 py-2 bg-[#1DB954] text-black font-medium rounded-full hover:bg-[#1ed760] transition-colors text-sm min-h-[44px]"
-        >
-          Connect
-        </button>
-      </div>
-
-      <!-- Spotify Status Banner (when initializing, only when album is selected) -->
-      <div v-else-if="hasAlbum && spotifyConnected && !spotifyReady" class="glass p-4 mb-4 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 bg-[#1DB954] rounded-full flex items-center justify-center animate-pulse">
-            <Music class="w-5 h-5 text-black" />
-          </div>
-          <div>
-            <p class="font-medium text-sm sm:text-base">Spotify Connected</p>
-            <p class="text-xs text-slate-400">{{ spotifyError || 'Initializing player...' }}</p>
-          </div>
-        </div>
-        <button
-          @click="handleSpotifyConnect"
-          class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-          title="Disconnect Spotify"
-        >
-          <Unplug class="w-5 h-5 text-slate-400" />
-        </button>
-      </div>
-
-      <!-- Spotify Ready Banner (when fully connected and ready) -->
-      <div v-else-if="hasAlbum && spotifyReady" class="glass p-4 mb-4 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 bg-[#1DB954] rounded-full flex items-center justify-center">
-            <Music class="w-5 h-5 text-black" />
-          </div>
-          <div>
-            <p class="font-medium text-sm sm:text-base text-[#1DB954]">Spotify Ready</p>
-            <p class="text-xs text-slate-400">Playing through your Spotify</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            @click="handleSyncAudio"
-            :disabled="isSyncing"
-            class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-            :class="{ 'animate-spin': isSyncing }"
-            title="Sync with room"
-          >
-            <RefreshCw class="w-5 h-5 text-slate-400" />
-          </button>
-          <button
-            @click="handleSpotifyConnect"
-            class="px-4 py-2 border border-slate-600 text-slate-300 font-medium rounded-full hover:bg-white/10 transition-colors text-sm min-h-[44px]"
-          >
-            Disconnect
-          </button>
-        </div>
-      </div>
-
-      <!-- Live Album Stats -->
-      <div v-if="hasAlbum && album" class="glass p-4 mb-4">
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-3">
-            <BarChart3 class="w-5 h-5 text-accent-primary" />
-            <span class="font-medium">Album So Far</span>
-          </div>
-          <div v-if="groupAlbumAvg != null || groupTrackAvg != null" class="text-right">
-            <span class="text-xs text-slate-500 mr-2">{{ groupAlbumAvg != null ? 'album avg' : 'track avg' }}</span>
-            <span class="text-xl font-heading font-bold" :class="getScoreColor(groupAlbumAvg ?? groupTrackAvg)">
-              {{ (groupAlbumAvg ?? groupTrackAvg).toFixed(1) }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Your rating progress -->
-        <div class="mb-3">
-          <div class="flex items-center justify-between text-sm mb-1.5">
-            <span class="text-slate-400">Your track ratings</span>
-            <span class="font-medium" :class="myRatedCount === totalTracks ? 'text-green-400' : 'text-slate-300'">
-              {{ myRatedCount }}/{{ totalTracks }}
-            </span>
-          </div>
-          <div class="h-1.5 bg-white/10 rounded-full overflow-hidden">
-            <div
-              class="h-full bg-accent-primary rounded-full transition-all duration-300"
-              :style="{ width: totalTracks ? `${(myRatedCount / totalTracks) * 100}%` : '0%' }"
-            ></div>
-          </div>
-          <button
-            v-if="myRatedCount === totalTracks && totalTracks > 0 && !myAlbumRanking"
-            @click="openAlbumRating"
-            class="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors text-sm"
-          >
-            <Star class="w-4 h-4" />
-            All tracks rated — rate the album!
-          </button>
-        </div>
-
-        <!-- Per-listener averages -->
-        <div v-if="userTrackStats.length" class="flex flex-wrap gap-2 mb-3">
-          <div
-            v-for="stat in userTrackStats"
-            :key="stat.user_id"
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm bg-white/10"
-            :class="{ 'border border-accent-primary/50 bg-accent-primary/10': stat.user_id === currentUser?.id }"
-          >
-            <span class="text-slate-300">{{ stat.user_name?.split(' ')[0] }}</span>
-            <span class="font-heading font-bold" :class="getScoreColor(stat.avg)">{{ stat.avg.toFixed(1) }}</span>
-            <span class="text-xs text-slate-500">({{ stat.count }})</span>
-          </div>
-        </div>
-
-        <!-- Best / worst track so far -->
-        <div v-if="bestTrack" class="space-y-1.5 text-sm">
-          <div class="flex items-center gap-2 min-w-0">
-            <TrendingUp class="w-4 h-4 text-green-400 flex-shrink-0" />
-            <span class="truncate text-slate-300">{{ bestTrack.track.name }}</span>
-            <span class="font-heading font-bold ml-auto flex-shrink-0" :class="getScoreColor(bestTrack.avg)">{{ bestTrack.avg.toFixed(1) }}</span>
-          </div>
-          <div v-if="worstTrack && worstTrack.track.id !== bestTrack.track.id" class="flex items-center gap-2 min-w-0">
-            <TrendingDown class="w-4 h-4 text-red-400 flex-shrink-0" />
-            <span class="truncate text-slate-300">{{ worstTrack.track.name }}</span>
-            <span class="font-heading font-bold ml-auto flex-shrink-0" :class="getScoreColor(worstTrack.avg)">{{ worstTrack.avg.toFixed(1) }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Track List (only when album is selected) -->
-      <div v-if="hasAlbum && album" class="glass overflow-hidden">
-        <template v-for="item in groupedTracks" :key="item.type === 'disc' ? `disc-${item.disc_number}` : item.track.id">
-          <div v-if="item.type === 'disc' && albumIsMultiDisc" class="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5">
-            <Disc3 class="w-3.5 h-3.5 text-slate-400" />
-            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Disc {{ item.disc_number }}</span>
-          </div>
-          <div
-            v-else-if="item.type === 'track'"
-            @click="handleSelectTrack(item.track.id)"
-            class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 cursor-pointer transition-all duration-150 border-b border-white/5 last:border-0"
-            :class="session.current_track_id === item.track.id
-              ? 'bg-accent-primary/10 border-l-2 border-l-accent-primary'
-              : 'hover:bg-white/5 border-l-2 border-l-transparent'"
-          >
-            <div class="w-6 sm:w-8 text-center flex-shrink-0">
-              <div v-if="session.current_track_id === item.track.id && isPlaying" class="flex items-center justify-center gap-0.5">
-                <span class="w-1 h-3 bg-accent-primary rounded-full animate-pulse"></span>
-                <span class="w-1 h-4 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.2s"></span>
-                <span class="w-1 h-2 bg-accent-primary rounded-full animate-pulse" style="animation-delay: 0.4s"></span>
+          <!-- Spotify status (compact) -->
+          <div class="glass p-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-8 h-8 bg-[#1DB954] rounded-full flex items-center justify-center flex-shrink-0" :class="{ 'animate-pulse': spotifyConnected && !spotifyReady }">
+                <Music class="w-4 h-4 text-black" />
               </div>
-              <Play
-                v-else-if="session.current_track_id === item.track.id"
-                class="w-4 h-4 text-accent-primary mx-auto"
+              <div class="min-w-0">
+                <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-[#1DB954]' : ''">
+                  {{ spotifyReady ? 'Spotify ready' : spotifyConnected ? (spotifyError || 'Starting player…') : 'Connect Spotify to hear it' }}
+                </p>
+              </div>
+            </div>
+            <button
+              @click="handleSpotifyConnect"
+              class="px-3 py-1.5 rounded-full text-xs font-medium min-h-[36px] flex-shrink-0 transition-colors"
+              :class="spotifyConnected ? 'border border-slate-600 text-slate-300 hover:bg-white/10' : 'bg-[#1DB954] text-black hover:bg-[#1ed760]'"
+            >
+              {{ spotifyConnected ? 'Disconnect' : 'Connect' }}
+            </button>
+          </div>
+
+          <!-- People here -->
+          <div class="glass p-4">
+            <div class="flex items-center gap-3 mb-3">
+              <Users class="w-5 h-5 text-accent-primary" />
+              <span class="font-medium">Here Now</span>
+              <span class="text-sm text-slate-400">({{ listeners.length }})</span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <div
+                v-for="listener in listeners"
+                :key="listener.user_id"
+                class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
+                :class="listener.user_id === currentUser?.id ? 'bg-accent-primary/20 border border-accent-primary/50' : 'bg-white/10'"
+              >
+                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                <span>{{ listener.user_name }}</span>
+                <span v-if="listener.user_id === currentUser?.id" class="text-xs text-accent-primary">(you)</span>
+              </div>
+              <div v-if="listeners.length === 0" class="text-slate-500 text-sm">
+                No one here yet — share the code
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main: chat fills the room -->
+        <div class="lg:col-span-2 lg:order-1 glass overflow-hidden">
+          <div class="flex items-center gap-3 p-4 border-b border-white/10">
+            <MessageCircle class="w-5 h-5 text-accent-primary" />
+            <span class="font-medium">Chat</span>
+          </div>
+          <SessionChat :current-user="currentUser" tall />
+        </div>
+      </div>
+
+      <!-- ===================== LISTENING LAYOUT ===================== -->
+      <div v-else class="grid gap-4 lg:grid-cols-3 items-start">
+        <!-- Main column -->
+        <div class="lg:col-span-2 space-y-4">
+          <!-- Album picker prompt -->
+          <div v-if="!hasAlbum" class="glass p-8 text-center">
+            <Disc3 class="w-16 h-16 mx-auto mb-4 text-slate-500" />
+            <h2 class="text-xl font-heading font-medium text-slate-300 mb-2">No album selected</h2>
+            <p class="text-slate-500 mb-6">Choose an album from the library to rank together</p>
+            <button
+              @click="showAlbumPicker = true"
+              class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
+            >
+              <Disc3 class="w-5 h-5" />
+              Select Album
+            </button>
+          </div>
+
+          <template v-else>
+            <NowPlayingCard
+              :track="currentTrack"
+              :is-playing="isPlaying"
+              :position="playbackPosition"
+              :duration="currentTrackDuration"
+              :is-syncing="isSyncing"
+              :show-sync="spotifyReady"
+              :my-score="myCurrentTrackScore"
+              @toggle="handleTogglePlayback"
+              @next="handleSkipNext"
+              @prev="handleSkipPrevious"
+              @seek="handleSeekTo"
+              @quick-rate="quickRateCurrentTrack"
+              @open-rating="currentTrack && openTrackRating(currentTrack)"
+              @sync="handleSyncAudio"
+            />
+
+            <!-- Tracks / Stats tabs -->
+            <div>
+              <div class="flex items-center gap-1 mb-3" role="tablist">
+                <button
+                  @click="mainTab = 'tracks'"
+                  role="tab"
+                  :aria-selected="mainTab === 'tracks'"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
+                  :class="mainTab === 'tracks' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'"
+                >
+                  <ListMusic class="w-4 h-4" />
+                  Tracks
+                </button>
+                <button
+                  @click="mainTab = 'stats'"
+                  role="tab"
+                  :aria-selected="mainTab === 'stats'"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
+                  :class="mainTab === 'stats' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'"
+                >
+                  <BarChart3 class="w-4 h-4" />
+                  Stats
+                </button>
+              </div>
+
+              <SessionTrackList
+                v-if="mainTab === 'tracks'"
+                :album="album"
+                :current-track-id="session.current_track_id"
+                :is-playing="isPlaying"
+                :current-user-id="currentUser?.id"
+                @select="handleSelectTrack"
+                @rate="openTrackRating"
+                @detail="openTrackDetail"
               />
-              <span v-else class="text-xs sm:text-sm text-slate-500">{{ item.track.track_number }}</span>
+              <SessionStats
+                v-else
+                :album="album"
+                :current-user="currentUser"
+                @rate-album="openAlbumRating"
+              />
             </div>
-            <div class="flex-1 min-w-0">
-              <p class="truncate text-sm sm:text-base" :class="session.current_track_id === item.track.id ? 'text-accent-primary font-medium' : ''">
-                {{ item.track.name }}
-              </p>
-              <p class="text-xs text-slate-500">{{ formatDuration(item.track.duration_ms) }}</p>
-            </div>
-            <!-- Mobile: group average -->
-            <div v-if="getTrackAvg(item.track) != null" class="sm:hidden text-center flex-shrink-0">
-              <div class="text-[10px] text-slate-500">avg</div>
-              <div class="font-heading font-bold text-sm" :class="getScoreColor(getTrackAvg(item.track))">
-                {{ getTrackAvg(item.track).toFixed(1) }}
+          </template>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="space-y-4">
+          <!-- Spotify status (compact) -->
+          <div v-if="hasAlbum" class="glass p-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-8 h-8 bg-[#1DB954] rounded-full flex items-center justify-center flex-shrink-0" :class="{ 'animate-pulse': spotifyConnected && !spotifyReady }">
+                <Music class="w-4 h-4 text-black" />
               </div>
-            </div>
-            <!-- Desktop: per-user scores -->
-            <div class="hidden sm:flex items-center gap-3">
-              <div v-for="ranking in item.track.rankings" :key="ranking.user_id" class="text-center">
-                <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
-                <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
-                  {{ ranking.score?.toFixed(1) || '-' }}
-                </div>
+              <div class="min-w-0">
+                <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-[#1DB954]' : ''">
+                  {{ spotifyReady ? 'Spotify ready' : spotifyConnected ? (spotifyError || 'Starting player…') : 'Connect Spotify' }}
+                </p>
+                <p v-if="!spotifyConnected" class="text-xs text-slate-500">Play in sync (Premium)</p>
               </div>
             </div>
             <button
-              @click.stop="openTrackDetail(item.track)"
-              class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
-              title="Track info"
-              aria-label="Track info"
+              @click="handleSpotifyConnect"
+              class="px-3 py-1.5 rounded-full text-xs font-medium min-h-[36px] flex-shrink-0 transition-colors flex items-center gap-1.5"
+              :class="spotifyConnected ? 'border border-slate-600 text-slate-300 hover:bg-white/10' : 'bg-[#1DB954] text-black hover:bg-[#1ed760]'"
             >
-              <Info class="w-4 h-4 text-slate-400" />
-            </button>
-            <button
-              @click.stop="openTrackRating(item.track)"
-              class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
-              :aria-label="getUserRanking(item.track.rankings)?.score != null ? 'Update your rating' : 'Rate this track'"
-            >
-              <Star class="w-3 h-3" :class="getUserRanking(item.track.rankings)?.score != null ? 'fill-yellow-400 text-yellow-400' : ''" />
-              <span>{{ getUserRanking(item.track.rankings)?.score?.toFixed(1) || 'Rate' }}</span>
+              <Unplug v-if="spotifyConnected" class="w-3.5 h-3.5" />
+              {{ spotifyConnected ? 'Disconnect' : 'Connect' }}
             </button>
           </div>
-        </template>
+
+          <!-- Listeners -->
+          <div class="glass p-4">
+            <div class="flex items-center gap-3 mb-3">
+              <Users class="w-5 h-5 text-accent-primary" />
+              <span class="font-medium">Listening Now</span>
+              <span class="text-sm text-slate-400">({{ listeners.length }})</span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <div
+                v-for="listener in listeners"
+                :key="listener.user_id"
+                class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
+                :class="listener.user_id === currentUser?.id ? 'bg-accent-primary/20 border border-accent-primary/50' : 'bg-white/10'"
+              >
+                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                <span>{{ listener.user_name }}</span>
+                <span v-if="listener.user_id === currentUser?.id" class="text-xs text-accent-primary">(you)</span>
+              </div>
+              <div v-if="listeners.length === 0" class="text-slate-500 text-sm">
+                No one is listening yet
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat (collapsible) -->
+          <div class="glass overflow-hidden">
+            <button
+              @click="toggleChat"
+              class="w-full flex items-center gap-3 p-4 min-h-[44px] text-left hover:bg-white/5 transition-colors"
+            >
+              <MessageCircle class="w-5 h-5 text-accent-primary" />
+              <span class="font-medium">Chat</span>
+              <span
+                v-if="unreadChatCount > 0 && !chatOpen"
+                class="px-2 py-0.5 bg-accent-primary text-black text-xs font-bold rounded-full"
+              >
+                {{ unreadChatCount }}
+              </span>
+              <component :is="chatOpen ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400 ml-auto" />
+            </button>
+            <SessionChat v-if="chatOpen" :current-user="currentUser" />
+          </div>
+        </div>
       </div>
     </div>
 
@@ -906,63 +761,20 @@ onUnmounted(() => {
       @submit="submitRating"
     />
 
-    <!-- Album Picker Modal -->
-    <div
+    <!-- Album picker (listening mode: library albums for ranking) -->
+    <AlbumPickerModal
       v-if="showAlbumPicker"
-      class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-20 bg-black/70 overflow-y-auto"
-      @click.self="closeAlbumPicker"
-    >
-      <div class="glass w-full max-w-2xl rounded-2xl overflow-hidden">
-        <div class="p-4 border-b border-white/10 flex items-center gap-4">
-          <Search class="w-5 h-5 text-slate-400" />
-          <input
-            v-model="albumSearch"
-            type="text"
-            placeholder="Search albums..."
-            class="flex-1 bg-transparent text-white placeholder-slate-500 focus:outline-none"
-            autofocus
-          />
-          <button @click="closeAlbumPicker" class="btn-ghost">
-            <X class="w-5 h-5 text-slate-400" />
-          </button>
-        </div>
+      :current-album-id="album?.id || null"
+      :busy="settingAlbum"
+      @close="showAlbumPicker = false"
+      @select="handleSelectAlbum"
+    />
 
-        <div class="max-h-96 overflow-y-auto">
-          <div v-if="loadingAlbums" class="p-8 text-center text-slate-400">
-            Loading albums...
-          </div>
-
-          <div v-else-if="filteredAlbums.length > 0" class="p-2 space-y-1">
-            <div
-              v-for="a in filteredAlbums"
-              :key="a.id"
-              @click="handleSelectAlbum(a)"
-              class="flex items-center gap-4 p-3 hover:bg-white/5 rounded-xl transition-colors cursor-pointer"
-              :class="{ 'opacity-50 pointer-events-none': settingAlbum }"
-            >
-              <img
-                :src="a.cover_url || '/placeholder.svg'"
-                :alt="a.name"
-                class="w-14 h-14 rounded-lg object-cover bg-white/10"
-              />
-
-              <div class="flex-1 min-w-0">
-                <h3 class="font-heading font-medium truncate">{{ a.name }}</h3>
-                <p class="text-sm text-slate-400 truncate">{{ a.artist }}</p>
-                <p class="text-xs text-slate-500">{{ a.tracks?.length || 0 }} tracks</p>
-              </div>
-
-              <div v-if="album?.id === a.id" class="px-3 py-1 bg-accent-primary/20 text-accent-primary rounded-lg text-sm">
-                Current
-              </div>
-            </div>
-          </div>
-
-          <div v-else class="p-8 text-center text-slate-500">
-            No albums found
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- Media search (hangout mode: whole Spotify catalog) -->
+    <MediaSearchModal
+      v-if="showMediaSearch"
+      @close="showMediaSearch = false"
+      @select="handleSelectMedia"
+    />
   </div>
 </template>

@@ -320,6 +320,58 @@ class TestChatHistoryPagination:
         assert client.get("/api/sessions/NOPE99/messages").status_code == 404
 
 
+class TestHangoutMedia:
+    MEDIA = {
+        "type": "track", "spotify_id": "abc123", "name": "Some Song",
+        "artist": "Some Artist", "image": "https://img.example/x.jpg", "duration_ms": 201000,
+    }
+
+    def test_set_media_broadcasts_and_starts_playing(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="Media Room", mode="hangout")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json(); ws.receive_json()
+            res = client.post(f"/api/sessions/{code}/media", json=self.MEDIA, headers=admin_headers)
+            assert res.status_code == 200
+            msg = ws.receive_json()
+            assert msg["type"] == "media_change"
+            assert msg["media"]["spotify_id"] == "abc123"
+            assert msg["media"]["type"] == "track"
+            assert msg["is_playing"] is True
+            assert msg["changed_by_name"] == "TestAdmin"
+
+    def test_media_included_in_sync_and_session_detail(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers, name="Media Sync Room", mode="hangout")
+        client.post(f"/api/sessions/{code}/media", json=self.MEDIA, headers=admin_headers)
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json()
+            sync = ws.receive_json()
+            assert sync["type"] == "sync"
+            assert sync["media"]["name"] == "Some Song"
+        detail = client.get(f"/api/sessions/{code}").json()
+        assert detail["media"]["spotify_id"] == "abc123"
+
+    def test_media_survives_state_eviction(self, client, admin_headers, admin_token):
+        """Media persists in the DB — a backend restart (state loss) must not lose it."""
+        from state import active_sessions
+        code = _make_session(client, admin_headers, name="Media Persist Room", mode="hangout")
+        client.post(f"/api/sessions/{code}/media", json=self.MEDIA, headers=admin_headers)
+        del active_sessions[code]
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json()
+            sync = ws.receive_json()
+            assert sync["media"]["spotify_id"] == "abc123"
+
+    def test_media_unknown_session_404(self, client, admin_headers):
+        res = client.post("/api/sessions/NOPE99/media", json=self.MEDIA, headers=admin_headers)
+        assert res.status_code == 404
+
+    def test_media_invalid_type_rejected(self, client, admin_headers):
+        code = _make_session(client, admin_headers, name="Bad Media Room")
+        bad = dict(self.MEDIA, type="playlist")
+        res = client.post(f"/api/sessions/{code}/media", json=bad, headers=admin_headers)
+        assert res.status_code == 422
+
+
 class TestHangoutMode:
     def test_create_hangout_session(self, client, admin_headers):
         res = client.post("/api/sessions", json={"name": "Hangout", "mode": "hangout"}, headers=admin_headers)

@@ -474,6 +474,66 @@ describe('useSession', () => {
     })
   })
 
+  describe('hangout media', () => {
+    let ws
+    const MEDIA = {
+      type: 'track', spotify_id: 'sp1', name: 'Song', artist: 'Artist',
+      image: null, duration_ms: 200000
+    }
+
+    beforeEach(async () => {
+      global.fetch = mockFetch({
+        '/api/sessions/HANG01': {
+          data: { code: 'HANG01', mode: 'hangout', media: null, playback: { is_playing: false, position: 0 }, participants: [] }
+        },
+        '/api/sessions/HANG01/messages': { data: { messages: [], has_more: false } }
+      })
+      await session.joinSession('HANG01', { id: 1, name: 'Me' })
+      ws = wsInstances[wsInstances.length - 1]
+    })
+
+    it('applies media_change: media, duration, playing state', async () => {
+      ws._receiveMessage({
+        type: 'media_change', media: MEDIA, is_playing: true, position: 0,
+        changed_by: 2, changed_by_name: 'Friend'
+      })
+      await nextTick()
+      expect(session.media.value.spotify_id).toBe('sp1')
+      expect(session.currentTrackDuration.value).toBe(200000)
+      expect(session.isPlaying.value).toBe(true)
+      session.stopProgressInterval()
+    })
+
+    it('album media has no single-track duration', async () => {
+      ws._receiveMessage({
+        type: 'media_change',
+        media: { ...MEDIA, type: 'album' },
+        is_playing: true, position: 0, changed_by: 2
+      })
+      await nextTick()
+      expect(session.currentTrackDuration.value).toBe(0)
+      session.stopProgressInterval()
+    })
+
+    it('sync restores media for a rejoining client', async () => {
+      ws._receiveMessage({
+        type: 'sync', track_id: null, media: MEDIA,
+        is_playing: false, position: 5000, listeners: []
+      })
+      await nextTick()
+      expect(session.media.value.name).toBe('Song')
+      expect(session.currentTrackDuration.value).toBe(200000)
+    })
+
+    it('clears media on leaveSession', async () => {
+      ws._receiveMessage({
+        type: 'media_change', media: MEDIA, is_playing: false, position: 0, changed_by: 2
+      })
+      session.leaveSession()
+      expect(session.media.value).toBeNull()
+    })
+  })
+
   describe('progress tracking', () => {
     beforeEach(() => {
       // The interval measures real elapsed time via performance.now() (to

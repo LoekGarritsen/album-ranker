@@ -143,6 +143,15 @@ class SessionJoin(BaseModel):
 class SessionSetAlbum(BaseModel):
     album_id: int
 
+class SessionMediaSet(BaseModel):
+    """Hangout now-playing: an individual Spotify track or full album."""
+    type: Literal["track", "album"]
+    spotify_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=300)
+    artist: str = Field(default="", max_length=300)
+    image: Optional[str] = Field(default=None, max_length=500)
+    duration_ms: int = Field(default=0, ge=0)
+
 
 # === WebSocket Message Models ===
 # These models document the WebSocket protocol and can be used for validation

@@ -92,6 +92,7 @@ def init_db():
                 is_public INTEGER DEFAULT 1,
                 password TEXT,
                 mode TEXT DEFAULT 'listening',
+                current_media TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -209,6 +210,10 @@ def _run_migrations(conn):
     # Room mode: 'listening' (album sync) or 'hangout' (chat-first, music optional)
     if 'mode' not in columns:
         conn.execute("ALTER TABLE listening_sessions ADD COLUMN mode TEXT DEFAULT 'listening'")
+
+    # Hangout now-playing (JSON: type/spotify_id/name/artist/image/duration_ms)
+    if 'current_media' not in columns:
+        conn.execute("ALTER TABLE listening_sessions ADD COLUMN current_media TEXT")
 
     if 'email' not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")

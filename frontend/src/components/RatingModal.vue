@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { X, Disc3, Music } from 'lucide-vue-next'
+import { useModal } from '../composables/useModal'
 
 const props = defineProps({
   type: { type: String, required: true }, // 'album' or 'track'
@@ -21,20 +22,14 @@ const existingRanking = computed(() => {
   return rankings?.find(r => r.user_id === props.currentUser.id && r.score != null)
 })
 
-function handleKeydown(e) {
-  if (e.key === 'Escape') emit('close')
-}
+const container = ref(null)
+useModal(container, () => emit('close'))
 
 onMounted(() => {
   if (existingRanking.value) {
     score.value = existingRanking.value.score || 5.0
     comment.value = existingRanking.value.comment || ''
   }
-  window.addEventListener('keydown', handleKeydown)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown)
 })
 
 function submit() {
@@ -75,8 +70,11 @@ const displayScore = computed(() => {
   <div
     class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4 bg-black/70"
     @click.self="emit('close')"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Rate"
   >
-    <div class="bg-bg-secondary border border-white/10 w-full max-w-md rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl">
+    <div ref="container" class="bg-bg-secondary border border-white/10 w-full max-w-md rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl">
       <!-- Header -->
       <div class="relative p-6 pb-4 border-b border-white/10">
         <button

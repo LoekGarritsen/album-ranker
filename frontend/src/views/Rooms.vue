@@ -2,10 +2,14 @@
 import { ref, onMounted, onUnmounted, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { Radio, Users, Lock, Plus, X, Loader2, ChevronLeft, Trash2, MessageCircle } from 'lucide-vue-next'
+import ModalDialog from '../components/ModalDialog.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
+import { useSession } from '../composables/useSession'
 
 const router = useRouter()
 const currentUser = inject('currentUser')
 const isAdmin = inject('isAdmin')
+const { showToast } = useSession()
 
 const rooms = ref([])
 const loading = ref(true)
@@ -87,9 +91,12 @@ async function createRoom() {
     if (res.ok) {
       const data = await res.json()
       router.push(`/session/${data.code}`)
+    } else {
+      showToast('Failed to create room', 'error')
     }
   } catch (e) {
     console.error('Failed to create room:', e)
+    showToast('Failed to create room', 'error')
   }
   creating.value = false
 }
@@ -120,9 +127,12 @@ async function joinRoom(room) {
 
     if (res.ok) {
       router.push(`/session/${room.code}`)
+    } else {
+      showToast('Failed to join room', 'error')
     }
   } catch (e) {
     console.error('Failed to join room:', e)
+    showToast('Failed to join room', 'error')
   }
   joining.value = null
 }
@@ -158,23 +168,37 @@ function closePasswordModal() {
   passwordError.value = ''
 }
 
-async function deleteRoom(room, event) {
-  event.stopPropagation()
-  if (!confirm(`Delete room "${room.name}"?`)) return
+// Delete confirmation modal
+const deleteTarget = ref(null)
+const deleting = ref(false)
 
+function requestDeleteRoom(room, event) {
+  event.stopPropagation()
+  deleteTarget.value = room
+}
+
+async function confirmDeleteRoom() {
+  if (!deleteTarget.value || deleting.value) return
+  deleting.value = true
   try {
-    const res = await fetch(`/api/sessions/${room.code}`, {
+    const res = await fetch(`/api/sessions/${deleteTarget.value.code}`, {
       method: 'DELETE',
       headers: {
         'X-User-Id': currentUser.value?.id?.toString() || ''
       }
     })
     if (res.ok) {
-      await loadRooms()
+      showToast(`Room "${deleteTarget.value.name}" deleted`, 'success')
+      deleteTarget.value = null
+      await loadRooms(false)
+    } else {
+      showToast('Failed to delete room', 'error')
     }
   } catch (e) {
     console.error('Failed to delete room:', e)
+    showToast('Failed to delete room', 'error')
   }
+  deleting.value = false
 }
 
 onMounted(() => {
@@ -320,9 +344,10 @@ onUnmounted(() => {
           <!-- Admin delete button -->
           <button
             v-if="isAdmin"
-            @click="deleteRoom(room, $event)"
+            @click="requestDeleteRoom(room, $event)"
             class="p-2 text-slate-500 hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
             title="Delete room"
+            aria-label="Delete room"
           >
             <Trash2 class="w-4 h-4" />
           </button>
@@ -331,15 +356,10 @@ onUnmounted(() => {
     </div>
 
     <!-- Create Room Modal -->
-    <div
-      v-if="showCreateModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
-      @click.self="closeCreateModal"
-    >
-      <div class="glass p-6 w-full max-w-md">
+    <ModalDialog v-if="showCreateModal" @close="closeCreateModal">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-heading font-semibold">Create Room</h2>
-          <button @click="closeCreateModal" class="p-1 hover:bg-white/10 rounded-lg">
+          <button @click="closeCreateModal" class="p-1 hover:bg-white/10 rounded-lg" aria-label="Close">
             <X class="w-5 h-5 text-slate-400" />
           </button>
         </div>
@@ -430,16 +450,10 @@ onUnmounted(() => {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </ModalDialog>
 
     <!-- Password Modal -->
-    <div
-      v-if="showPasswordModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70"
-      @click.self="closePasswordModal"
-    >
-      <div class="glass p-6 w-full max-w-sm">
+    <ModalDialog v-if="showPasswordModal" max-width="max-w-sm" @close="closePasswordModal">
         <div class="flex items-center gap-3 mb-4">
           <Lock class="w-6 h-6 text-accent-primary" />
           <h2 class="text-xl font-heading font-semibold">Room Password</h2>
@@ -475,7 +489,17 @@ onUnmounted(() => {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </ModalDialog>
+
+    <!-- Delete Room Confirmation -->
+    <ConfirmModal
+      v-if="deleteTarget"
+      title="Delete room?"
+      :message="`${deleteTarget.name} will be closed for everyone in it. This cannot be undone.`"
+      confirm-label="Delete room"
+      :busy="deleting"
+      @confirm="confirmDeleteRoom"
+      @close="deleteTarget = null"
+    />
   </div>
 </template>

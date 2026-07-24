@@ -32,6 +32,31 @@ def _token_row(db_path, user_id):
     return row
 
 
+class TestSearchMedia:
+    RESULT = {
+        "tracks": [{"spotify_id": "t1", "name": "Song One", "artist": "A", "album_name": "Al", "image": None, "duration_ms": 1000}],
+        "albums": [{"spotify_id": "a1", "name": "Album One", "artist": "A", "image": None, "total_tracks": 10, "release_date": "2024-01-01"}],
+    }
+
+    def _patch(self):
+        return patch(
+            "routers.spotify_routes.spotify_client.search_media",
+            new_callable=AsyncMock, return_value=self.RESULT,
+        )
+
+    def test_search_media_any_user(self, client, user_headers):
+        with self._patch():
+            res = client.get("/api/spotify/search-media", params={"q": "song"}, headers=user_headers)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["tracks"][0]["spotify_id"] == "t1"
+        assert data["albums"][0]["spotify_id"] == "a1"
+
+    def test_search_media_requires_auth(self, client):
+        with self._patch():
+            assert client.get("/api/spotify/search-media", params={"q": "song"}).status_code == 401
+
+
 class TestSpotifyStatus:
     def test_status_false_when_not_connected(self, client, user_headers):
         res = client.get("/api/spotify/status", headers=user_headers)

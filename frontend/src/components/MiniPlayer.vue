@@ -11,6 +11,7 @@ const currentUser = inject('currentUser')
 const {
   session,
   album,
+  media,
   isPlaying,
   currentTrack,
   progressPercent,
@@ -24,6 +25,12 @@ const {
   formatDuration,
   syncWithServer
 } = useSession()
+
+// Hangout media has no album tracklist — no skip buttons, name from media
+const showSkip = computed(() => hasAlbum.value)
+const displayTitle = computed(() => currentTrack.value?.name || media.value?.name || 'No track')
+const displaySubtitle = computed(() => (album.value?.artist || media.value?.artist || '') )
+const displayImage = computed(() => album.value?.cover_url || media.value?.image || '/placeholder.svg')
 
 const isSyncing = ref(false)
 
@@ -65,7 +72,7 @@ async function handleSync() {
 
 <template>
   <div
-    v-if="session && hasAlbum"
+    v-if="session && (hasAlbum || media)"
     class="fixed bottom-0 left-0 right-0 z-40 bg-bg-secondary/95 backdrop-blur-xl border-t border-white/10 safe-area-bottom"
   >
     <!-- Progress bar at top -->
@@ -85,7 +92,7 @@ async function handleSync() {
         >
           <div class="relative">
             <img
-              :src="album?.cover_url || '/placeholder.svg'"
+              :src="displayImage"
               class="w-12 h-12 rounded-lg object-cover bg-white/10"
             />
             <div class="absolute -top-1 -right-1 w-4 h-4 bg-accent-primary rounded-full flex items-center justify-center">
@@ -94,10 +101,10 @@ async function handleSync() {
           </div>
           <div class="min-w-0">
             <p class="truncate font-medium text-sm" :class="{ 'text-accent-primary': isPlaying }">
-              {{ currentTrack?.name || 'No track' }}
+              {{ displayTitle }}
             </p>
             <p class="truncate text-xs text-slate-400">
-              {{ album?.artist }} · {{ session.code }}
+              {{ displaySubtitle }} · {{ session.code }}
             </p>
           </div>
         </div>
@@ -118,6 +125,7 @@ async function handleSync() {
             <RefreshCw class="w-4 h-4" />
           </button>
           <button
+            v-if="showSkip"
             @click="handleSkipPrevious"
             class="p-2 hover:bg-white/10 rounded-full transition-colors"
           >
@@ -131,6 +139,7 @@ async function handleSync() {
             <Play v-else class="w-5 h-5 ml-0.5" />
           </button>
           <button
+            v-if="showSkip"
             @click="handleSkipNext"
             class="p-2 hover:bg-white/10 rounded-full transition-colors"
           >

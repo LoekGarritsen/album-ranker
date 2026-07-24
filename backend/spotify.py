@@ -69,6 +69,46 @@ class SpotifyClient:
 
             return albums
 
+    async def search_media(self, query: str, limit: int = 10) -> dict:
+        """Search tracks and albums in one call (hangout jukebox search)."""
+        token = await self._get_token()
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.spotify.com/v1/search",
+                params={"q": query, "type": "track,album", "limit": limit},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            tracks = []
+            for item in data.get("tracks", {}).get("items", []):
+                album = item.get("album", {})
+                images = album.get("images", [])
+                tracks.append({
+                    "spotify_id": item["id"],
+                    "name": item["name"],
+                    "artist": ", ".join(a["name"] for a in item.get("artists", [])),
+                    "album_name": album.get("name"),
+                    "image": images[0]["url"] if images else None,
+                    "duration_ms": item.get("duration_ms", 0)
+                })
+
+            albums = []
+            for item in data.get("albums", {}).get("items", []):
+                images = item.get("images", [])
+                albums.append({
+                    "spotify_id": item["id"],
+                    "name": item["name"],
+                    "artist": ", ".join(a["name"] for a in item.get("artists", [])),
+                    "image": images[0]["url"] if images else None,
+                    "total_tracks": item.get("total_tracks", 0),
+                    "release_date": item.get("release_date")
+                })
+
+            return {"tracks": tracks, "albums": albums}
+
     async def get_album_details(self, album_id: str) -> dict:
         """Fetch album details including genres"""
         token = await self._get_token()

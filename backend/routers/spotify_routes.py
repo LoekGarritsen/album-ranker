@@ -41,6 +41,24 @@ async def search_spotify(
         raise HTTPException(500, f"Spotify API error: {str(e)}")
 
 
+@router.get("/search-media")
+async def search_media(
+    q: str = Query(..., min_length=1),
+    user: dict = Depends(get_current_user),
+):
+    """Search Spotify for individual tracks and albums (hangout jukebox).
+
+    Any signed-in user — unlike /search, which gates adding albums to the
+    library behind admin.
+    """
+    try:
+        return await spotify_client.search_media(q)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"Spotify API error: {str(e)}")
+
+
 @router.get("/new-releases", response_model=list[SpotifyAlbum])
 async def get_new_releases():
     """Get new album releases from Spotify."""

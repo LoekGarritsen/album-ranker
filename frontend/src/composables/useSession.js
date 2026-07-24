@@ -4,6 +4,9 @@ import { useSpotifyPlayer } from './useSpotifyPlayer'
 // Global session state (singleton)
 const session = ref(null)
 const album = ref(null)
+// Hangout now-playing: individual Spotify track/album, independent of the
+// ranking library ({ type, spotify_id, name, artist, image, duration_ms })
+const media = ref(null)
 const isPlaying = ref(false)
 const playbackPosition = ref(0)
 const currentTrackDuration = ref(0)
@@ -65,6 +68,23 @@ export function useSession() {
     const loaded = spotifyPlayerTrack.value
     if (!loaded || !track?.spotify_id) return false
     return loaded.id === track.spotify_id || loaded.linked_from?.id === track.spotify_id
+  }
+
+  // Is the hangout media (track) the one loaded in the local player?
+  function spotifyHasMedia(m) {
+    const loaded = spotifyPlayerTrack.value
+    if (!loaded || !m?.spotify_id) return false
+    return loaded.id === m.spotify_id || loaded.linked_from?.id === m.spotify_id
+  }
+
+  // Start Spotify playback for hangout media (single track or album context).
+  async function playMediaOnSpotify(m, positionMs = 0) {
+    if (!spotifyReady.value || !m?.spotify_id) return
+    if (m.type === 'album') {
+      await spotifyPlayContext(`spotify:album:${m.spotify_id}`, null, positionMs)
+    } else {
+      await spotifyPlay(`spotify:track:${m.spotify_id}`, positionMs)
+    }
   }
 
   // Start Spotify playback for a track. When the album has a Spotify context,
@@ -226,6 +246,13 @@ export function useSession() {
         if (syncTrack) {
           currentTrackDuration.value = syncTrack.duration_ms
         }
+        if (data.media !== undefined) {
+          media.value = data.media
+          if (!syncTrack && data.media) {
+            // Album media has no single duration — progress bar hides at 0.
+            currentTrackDuration.value = data.media.type === 'track' ? data.media.duration_ms : 0
+          }
+        }
         playbackPosition.value = data.position || 0
         isPlaying.value = data.is_playing || false
         listeners.value = data.listeners || []
@@ -288,6 +315,15 @@ export function useSession() {
             } else {
               playTrackOnSpotify(track, data.position || 0)
             }
+          } else if (spotifyReady.value && media.value?.spotify_id) {
+            // Hangout media. Album context position is per-track, so resume in
+            // place when anything is loaded; only cold-start from scratch.
+            if (spotifyHasMedia(media.value) || media.value.type === 'album') {
+              if (spotifyPaused.value) spotifyResume()
+              else if (!spotifyPlayerTrack.value) playMediaOnSpotify(media.value, data.position || 0)
+            } else {
+              playMediaOnSpotify(media.value, data.position || 0)
+            }
           }
           startProgressInterval()
         } else if (data.action === 'pause') {
@@ -332,6 +368,9 @@ export function useSession() {
               } else {
                 playTrackOnSpotify(track, playbackPosition.value)
               }
+            } else if (spotifyReady.value && media.value?.spotify_id) {
+              if (spotifyPaused.value && spotifyPlayerTrack.value) spotifyResume()
+              else if (!spotifyPlayerTrack.value) playMediaOnSpotify(media.value, playbackPosition.value)
             }
             startProgressInterval()
           } else {
@@ -428,6 +467,28 @@ export function useSession() {
         }
         break
 
+      case 'media_change': {
+        // Hangout now-playing changed (individual Spotify track/album).
+        stopProgressInterval()
+        media.value = data.media
+        currentTrackDuration.value = data.media?.type === 'track' ? (data.media.duration_ms || 0) : 0
+        playbackPosition.value = data.position || 0
+        isPlaying.value = data.is_playing || false
+
+        if (data.changed_by !== currentUser?.id) {
+          showToast(`${data.changed_by_name || 'Someone'} put on "${data.media?.name}"`)
+        }
+        // Single ordered playback path for everyone, including the picker —
+        // no optimistic Spotify start in setMedia, so nothing double-fires.
+        if (isPlaying.value && spotifyReady.value && data.media?.spotify_id) {
+          playMediaOnSpotify(data.media, 0)
+        }
+        if (isPlaying.value) {
+          startProgressInterval()
+        }
+        break
+      }
+
       case 'chat_message': {
         // Reconcile the sender's optimistic bubble by client_id first.
         const pendingIdx = data.client_id
@@ -481,6 +542,7 @@ export function useSession() {
         // Clear session state - the WebSocket will close automatically
         session.value = null
         album.value = null
+        media.value = null
         sessionUser.value = null
         isPlaying.value = false
         playbackPosition.value = 0
@@ -657,7 +719,10 @@ export function useSession() {
 
       session.value = await res.json()
       sessionUser.value = currentUser // Store for auto-advance
-      currentTrackDuration.value = session.value.current_track_duration || 0
+      media.value = session.value.media || null
+      currentTrackDuration.value = session.value.current_track_duration
+        || (media.value?.type === 'track' ? media.value.duration_ms : 0)
+        || 0
       isPlaying.value = session.value.playback?.is_playing || false
       playbackPosition.value = session.value.playback?.position || 0
       listeners.value = session.value.participants?.filter(p => p.is_online) || []
@@ -707,6 +772,30 @@ export function useSession() {
     }
   }
 
+  // Hangout: put on an individual Spotify track or album for the room.
+  // Spotify playback starts via the media_change broadcast (single path).
+  async function setMedia(item) {
+    if (!session.value?.code) return false
+    try {
+      const res = await fetch(`/api/sessions/${session.value.code}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: item.type,
+          spotify_id: item.spotify_id,
+          name: item.name,
+          artist: item.artist || '',
+          image: item.image || null,
+          duration_ms: item.duration_ms || 0
+        })
+      })
+      return res.ok
+    } catch (e) {
+      console.error('Failed to set media:', e)
+      return false
+    }
+  }
+
   async function leaveSession() {
     stopProgressInterval()
     if (reconnectTimer) {
@@ -723,6 +812,7 @@ export function useSession() {
     }
     session.value = null
     album.value = null
+    media.value = null
     sessionUser.value = null
     isPlaying.value = false
     playbackPosition.value = 0
@@ -883,6 +973,14 @@ export function useSession() {
         }
       }
 
+      // Refresh hangout media too
+      if (data.media !== undefined) {
+        media.value = data.media
+        if (!currentTrack.value && data.media) {
+          currentTrackDuration.value = data.media.type === 'track' ? data.media.duration_ms : 0
+        }
+      }
+
       // Sync Spotify player if connected
       if (spotifyReady.value) {
         const track = currentTrack.value
@@ -895,6 +993,12 @@ export function useSession() {
             if (playbackPosition.value > 0) {
               await spotifySeek(playbackPosition.value)
             }
+          }
+        } else if (media.value?.spotify_id) {
+          if (isPlaying.value) {
+            await playMediaOnSpotify(media.value, media.value.type === 'track' ? playbackPosition.value : 0)
+          } else if (!spotifyPaused.value) {
+            await spotifyPause()
           }
         }
       }
@@ -917,6 +1021,7 @@ export function useSession() {
     // State
     session,
     album,
+    media,
     isPlaying,
     playbackPosition,
     currentTrackDuration,
@@ -946,6 +1051,7 @@ export function useSession() {
     selectTrack,
     notifyTrackChange,
     setAlbum,
+    setMedia,
     loadAlbumData,
     togglePlayback,
     seekTo,

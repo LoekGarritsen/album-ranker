@@ -4,13 +4,14 @@ Listening session routes including WebSocket handling.
 from fastapi import APIRouter, HTTPException, Depends, Query, WebSocket
 from typing import Optional
 from datetime import datetime, timezone
+import json
 import random
 import string
 import time
 import uuid
 
 from database import get_connection
-from models import ListeningSession, SessionCreate, SessionJoin
+from models import ListeningSession, SessionCreate, SessionJoin, SessionMediaSet
 from state import active_sessions
 from auth_deps import get_current_user
 from security import hash_password, verify_password, hash_token
@@ -132,6 +133,7 @@ def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
         "connections": {},
         "album_id": data.album_id,
         "current_track_id": first_track["id"] if first_track else None,
+        "media": None,
         "is_playing": False,
         "playback_position": 0,
         "playback_started_at": None
@@ -204,6 +206,7 @@ def get_session(code: str):
             "has_password": bool(session["password"]),
             "created_by_name": session["created_by_name"],
             "mode": session["mode"] or "listening",
+            "media": json.loads(session["current_media"]) if session["current_media"] else None,
             "playback": playback_state
         }
 
@@ -332,6 +335,43 @@ async def set_session_album(code: str, album_id: int = Query(...), user: dict = 
         })
 
     return {"ok": True, "album": dict(album), "first_track": dict(first_track) if first_track else None}
+
+
+@router.post("/{code}/media")
+async def set_session_media(code: str, media: SessionMediaSet, user: dict = Depends(get_current_user)):
+    """Set the hangout now-playing: an individual Spotify track or album.
+
+    Distinct from /album (listening mode, library albums for ranking) —
+    hangout media is any Spotify catalog item, no DB album rows involved.
+    """
+    media_dict = media.model_dump()
+    with get_connection() as conn:
+        updated = conn.execute("""
+            UPDATE listening_sessions SET current_media = ?
+            WHERE code = ? AND is_active = 1
+        """, (json.dumps(media_dict), code))
+        if updated.rowcount == 0:
+            raise HTTPException(404, "Session not found")
+        row = conn.execute("SELECT name FROM users WHERE id = ?", (user["id"],)).fetchone()
+        user_name = row["name"] if row else None
+
+    if code in active_sessions:
+        state = active_sessions[code]
+        state["media"] = media_dict
+        state["playback_position"] = 0
+        state["is_playing"] = True
+        state["playback_started_at"] = time.time()
+
+        await broadcast_to_session(code, {
+            "type": "media_change",
+            "media": media_dict,
+            "is_playing": True,
+            "position": 0,
+            "changed_by": user["id"],
+            "changed_by_name": user_name
+        })
+
+    return {"ok": True}
 
 
 @router.post("/{code}/playback")
@@ -463,7 +503,7 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
     if code not in active_sessions:
         with get_connection() as conn:
             session = conn.execute(
-                "SELECT album_id, current_track_id, name FROM listening_sessions WHERE code = ? AND is_active = 1",
+                "SELECT album_id, current_track_id, current_media, name FROM listening_sessions WHERE code = ? AND is_active = 1",
                 (code,)
             ).fetchone()
             if session:
@@ -471,6 +511,7 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                     "connections": {},
                     "album_id": session["album_id"],
                     "current_track_id": session["current_track_id"],
+                    "media": json.loads(session["current_media"]) if session["current_media"] else None,
                     "is_playing": False,
                     "playback_position": 0,
                     "playback_started_at": None
@@ -523,6 +564,7 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
     await websocket.send_json({
         "type": "sync",
         "track_id": state["current_track_id"],
+        "media": state.get("media"),
         "is_playing": state["is_playing"],
         "position": current_position,
         "listeners": session_listeners(state)

@@ -104,7 +104,7 @@ onMounted(async () => {
   <div class="min-h-screen text-slate-100">
     <!-- Floating Navbar -->
     <nav class="fixed top-4 left-4 right-4 z-50 glass shadow-lg shadow-black/20">
-      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
         <div class="flex items-center gap-4">
           <RouterLink to="/" class="flex items-center gap-2 text-xl font-heading font-semibold">
             <Music2 class="w-6 h-6 text-accent-primary" />
@@ -157,7 +157,7 @@ onMounted(async () => {
 
     <!-- Main content -->
     <main class="pt-24 px-4" :class="isInSession ? 'pb-24' : 'pb-8'">
-      <div class="max-w-6xl mx-auto">
+      <div class="max-w-7xl mx-auto">
         <!-- Logged in, or on the magic-link landing page -->
         <RouterView v-if="currentUser || isAuthRoute" />
 
@@ -202,7 +202,7 @@ onMounted(async () => {
     <MiniPlayer />
 
     <!-- Global Toast Notifications -->
-    <div class="fixed bottom-20 right-4 z-50 flex flex-col gap-2" :class="{ 'bottom-4': !isInSession }">
+    <div class="fixed bottom-20 right-4 z-50 flex flex-col gap-2" :class="{ 'bottom-4': !isInSession }" role="status" aria-live="polite">
       <TransitionGroup name="toast">
         <div
           v-for="toast in toasts"
