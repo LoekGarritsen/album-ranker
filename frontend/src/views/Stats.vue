@@ -28,7 +28,7 @@ async function loadStats() {
 }
 
 function getScoreColor(score) {
-  if (!score) return 'text-slate-500'
+  if (!score) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -44,7 +44,7 @@ onMounted(loadStats)
       <h1 class="text-2xl sm:text-3xl font-heading font-bold">Stats</h1>
     </div>
 
-    <div v-if="loading" class="text-center py-12 text-slate-400">
+    <div v-if="loading" class="text-center py-12 text-text-subdued">
       Loading stats...
     </div>
 
@@ -54,22 +54,22 @@ onMounted(loadStats)
         <div class="glass p-4 text-center">
           <Disc3 class="w-8 h-8 mx-auto mb-2 text-accent-primary" />
           <div class="text-2xl font-heading font-bold">{{ stats.total_albums }}</div>
-          <div class="text-sm text-slate-400">Albums</div>
+          <div class="text-sm text-text-subdued">Albums</div>
         </div>
         <div class="glass p-4 text-center">
           <Music class="w-8 h-8 mx-auto mb-2 text-blue-400" />
           <div class="text-2xl font-heading font-bold">{{ stats.total_tracks }}</div>
-          <div class="text-sm text-slate-400">Tracks</div>
+          <div class="text-sm text-text-subdued">Tracks</div>
         </div>
         <div class="glass p-4 text-center">
           <BarChart3 class="w-8 h-8 mx-auto mb-2 text-yellow-400" />
           <div class="text-2xl font-heading font-bold">{{ stats.total_album_ratings }}</div>
-          <div class="text-sm text-slate-400">Album Ratings</div>
+          <div class="text-sm text-text-subdued">Album Ratings</div>
         </div>
         <div class="glass p-4 text-center">
           <Users class="w-8 h-8 mx-auto mb-2 text-purple-400" />
           <div class="text-2xl font-heading font-bold">{{ stats.total_track_ratings }}</div>
-          <div class="text-sm text-slate-400">Track Ratings</div>
+          <div class="text-sm text-text-subdued">Track Ratings</div>
         </div>
       </div>
 
@@ -81,21 +81,21 @@ onMounted(loadStats)
             <h3 class="font-heading font-semibold text-lg mb-3">{{ user.user_name }}</h3>
             <div class="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <span class="text-slate-400">Albums rated:</span>
+                <span class="text-text-subdued">Albums rated:</span>
                 <span class="ml-2 font-medium">{{ user.albums_rated }}</span>
               </div>
               <div>
-                <span class="text-slate-400">Tracks rated:</span>
+                <span class="text-text-subdued">Tracks rated:</span>
                 <span class="ml-2 font-medium">{{ user.tracks_rated }}</span>
               </div>
               <div>
-                <span class="text-slate-400">Avg album:</span>
+                <span class="text-text-subdued">Avg album:</span>
                 <span class="ml-2 font-medium" :class="getScoreColor(user.average_album_score)">
                   {{ user.average_album_score || '-' }}
                 </span>
               </div>
               <div>
-                <span class="text-slate-400">Avg track:</span>
+                <span class="text-text-subdued">Avg track:</span>
                 <span class="ml-2 font-medium" :class="getScoreColor(user.average_track_score)">
                   {{ user.average_track_score || '-' }}
                 </span>
@@ -120,14 +120,14 @@ onMounted(loadStats)
             :key="i"
             class="flex items-center gap-2 sm:gap-4 p-2 sm:p-3 border-b border-white/5 last:border-0"
           >
-            <div class="w-6 sm:w-8 text-center text-slate-500 font-medium text-sm">{{ i + 1 }}</div>
+            <div class="w-6 sm:w-8 text-center text-text-subdued font-medium text-sm">{{ i + 1 }}</div>
             <img
               :src="track.cover_url || '/placeholder.svg'"
               class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-white/10 flex-shrink-0"
             />
             <div class="flex-1 min-w-0">
               <p class="truncate font-medium text-sm sm:text-base">{{ track.name }}</p>
-              <p class="text-xs sm:text-sm text-slate-400 truncate">{{ track.artist }}</p>
+              <p class="text-xs sm:text-sm text-text-subdued truncate">{{ track.artist }}</p>
             </div>
             <div class="text-lg sm:text-xl font-heading font-bold" :class="getScoreColor(track.avg_score)">
               {{ track.avg_score?.toFixed(1) }}
@@ -142,7 +142,7 @@ onMounted(loadStats)
           <Flame class="w-5 h-5 text-orange-400" />
           Hot Takes
         </h2>
-        <p class="text-slate-400 text-xs sm:text-sm mb-4">Ratings that differ most from the average</p>
+        <p class="text-text-subdued text-xs sm:text-sm mb-4">Ratings that differ most from the average</p>
         <div class="space-y-2 sm:space-y-3">
           <div
             v-for="(take, i) in hotTakes"
@@ -155,14 +155,14 @@ onMounted(loadStats)
             />
             <div class="flex-1 min-w-0">
               <p class="truncate font-medium text-sm sm:text-base">{{ take.track_name }}</p>
-              <p class="text-xs sm:text-sm text-slate-400 truncate">{{ take.album_name }}</p>
-              <p class="text-xs text-slate-500">{{ take.user_name }}'s take</p>
+              <p class="text-xs sm:text-sm text-text-subdued truncate">{{ take.album_name }}</p>
+              <p class="text-xs text-text-subdued">{{ take.user_name }}'s take</p>
             </div>
             <div class="text-right flex-shrink-0">
               <div class="text-base sm:text-lg font-heading font-bold" :class="getScoreColor(take.user_score)">
                 {{ take.user_score }}
               </div>
-              <div class="text-[10px] sm:text-xs text-slate-500">
+              <div class="text-[10px] sm:text-xs text-text-subdued">
                 avg: {{ take.average_score }}
                 <span :class="take.user_score > take.average_score ? 'text-green-400' : 'text-red-400'">
                   ({{ take.user_score > take.average_score ? '+' : '' }}{{ (take.user_score - take.average_score).toFixed(1) }})

@@ -27,7 +27,7 @@ async function loadComparison() {
 }
 
 function getScoreColor(score) {
-  if (!score) return 'text-slate-500'
+  if (!score) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -35,7 +35,7 @@ function getScoreColor(score) {
 }
 
 function getDiffColor(diff) {
-  if (!diff) return 'text-slate-500'
+  if (!diff) return 'text-text-subdued'
   if (diff >= 3) return 'text-red-400'
   if (diff >= 2) return 'text-orange-400'
   if (diff >= 1) return 'text-yellow-400'
@@ -70,7 +70,7 @@ watch([user1Id, user2Id], loadComparison)
           </option>
         </select>
 
-        <ArrowLeftRight class="w-5 h-5 text-slate-400" />
+        <ArrowLeftRight class="w-5 h-5 text-text-subdued" />
 
         <select
           v-model="user2Id"
@@ -103,13 +103,13 @@ watch([user1Id, user2Id], loadComparison)
       </button>
     </div>
 
-    <div v-if="loading" class="text-center py-12 text-slate-400">
+    <div v-if="loading" class="text-center py-12 text-text-subdued">
       Loading comparison...
     </div>
 
     <div v-else-if="comparison">
       <!-- Header -->
-      <div class="glass p-3 mb-4 grid grid-cols-[1fr,50px,50px,40px] sm:grid-cols-[1fr,80px,80px,60px] gap-2 sm:gap-4 text-xs sm:text-sm text-slate-400">
+      <div class="glass p-3 mb-4 grid grid-cols-[1fr,50px,50px,40px] sm:grid-cols-[1fr,80px,80px,60px] gap-2 sm:gap-4 text-xs sm:text-sm text-text-subdued">
         <div>{{ activeTab === 'albums' ? 'Album' : 'Track' }}</div>
         <div class="text-center truncate">{{ comparison.user1.name.split(' ')[0] }}</div>
         <div class="text-center truncate">{{ comparison.user2.name.split(' ')[0] }}</div>
@@ -141,7 +141,7 @@ watch([user1Id, user2Id], loadComparison)
           </div>
         </div>
 
-        <div v-if="comparison.albums.length === 0" class="text-center py-8 text-slate-400">
+        <div v-if="comparison.albums.length === 0" class="text-center py-8 text-text-subdued">
           No albums rated by both users
         </div>
       </div>
@@ -160,7 +160,7 @@ watch([user1Id, user2Id], loadComparison)
             />
             <div class="min-w-0">
               <p class="truncate text-sm sm:text-base">{{ track.name }}</p>
-              <p class="text-xs text-slate-500 truncate hidden sm:block">{{ track.album_name }}</p>
+              <p class="text-xs text-text-subdued truncate hidden sm:block">{{ track.album_name }}</p>
             </div>
           </div>
           <div class="text-center font-heading font-bold text-sm sm:text-base" :class="getScoreColor(track.user1_score)">
@@ -174,13 +174,13 @@ watch([user1Id, user2Id], loadComparison)
           </div>
         </div>
 
-        <div v-if="comparison.tracks.length === 0" class="text-center py-8 text-slate-400">
+        <div v-if="comparison.tracks.length === 0" class="text-center py-8 text-text-subdued">
           No tracks rated by both users
         </div>
       </div>
     </div>
 
-    <div v-else class="text-center py-12 text-slate-400">
+    <div v-else class="text-center py-12 text-text-subdued">
       Select two users to compare their ratings
     </div>
   </div>

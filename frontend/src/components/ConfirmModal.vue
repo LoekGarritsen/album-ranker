@@ -20,7 +20,7 @@ const emit = defineEmits(['confirm', 'close'])
       </div>
       <h2 class="text-lg font-heading font-semibold">{{ title }}</h2>
     </div>
-    <p v-if="message" class="text-sm text-slate-400 mb-6">{{ message }}</p>
+    <p v-if="message" class="text-sm text-text-subdued mb-6">{{ message }}</p>
 
     <div class="flex gap-3">
       <button type="button" @click="emit('close')" class="flex-1 btn-secondary">

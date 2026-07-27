@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, inject, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search as SearchIcon, Plus, Check, Loader2, BarChart3, X, ChevronDown, Star, Trash2, Music, Sparkles, TrendingUp, Calendar, Users, Layers, Disc3 } from 'lucide-vue-next'
+import { Search as SearchIcon, Plus, Check, Loader2, X, ChevronDown, Star, Trash2, Music, Sparkles, Disc3 } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 
@@ -192,7 +192,7 @@ function getUserRanking(rankings) {
 }
 
 function getScoreColor(score) {
-  if (!score) return 'text-slate-500'
+  if (!score) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -231,11 +231,11 @@ onMounted(loadAlbums)
   <div>
     <!-- Header -->
     <div class="flex items-center justify-between mb-6 sm:mb-8 flex-wrap gap-3">
-      <h1 class="text-2xl sm:text-3xl font-heading font-bold">Albums</h1>
+      <h1 class="text-3xl sm:text-4xl font-heading font-extrabold tracking-tight">Albums</h1>
       <div class="flex gap-2 sm:gap-3">
         <button
           @click="openNewReleases"
-          class="flex items-center gap-2 px-3 sm:px-4 py-2 glass glass-hover min-h-[44px]"
+          class="btn-secondary flex items-center gap-2 !px-4 text-sm min-h-[44px]"
         >
           <Sparkles class="w-5 h-5 text-accent-primary" />
           <span class="hidden sm:inline">New Releases</span>
@@ -244,37 +244,13 @@ onMounted(loadAlbums)
         <button
           v-if="isAdmin"
           @click="showSearch = true"
-          class="flex items-center gap-2 px-3 sm:px-4 py-2 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors min-h-[44px]"
+          class="btn-primary flex items-center gap-2 !px-4 text-sm min-h-[44px]"
         >
           <Plus class="w-5 h-5" />
           <span class="hidden sm:inline">Add Album</span>
           <span class="sm:hidden">Add</span>
         </button>
       </div>
-    </div>
-
-    <!-- Navigation -->
-    <div class="flex gap-2 mb-6 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap scrollbar-hide">
-      <router-link to="/stats" class="flex items-center gap-2 px-3 py-2 glass glass-hover text-sm whitespace-nowrap min-h-[44px]">
-        <TrendingUp class="w-4 h-4" />
-        Stats
-      </router-link>
-      <router-link to="/compare" class="flex items-center gap-2 px-3 py-2 glass glass-hover text-sm whitespace-nowrap min-h-[44px]">
-        <Users class="w-4 h-4" />
-        Compare
-      </router-link>
-      <router-link to="/tiers" class="flex items-center gap-2 px-3 py-2 glass glass-hover text-sm whitespace-nowrap min-h-[44px]">
-        <Layers class="w-4 h-4" />
-        Tiers
-      </router-link>
-      <router-link to="/year-review" class="flex items-center gap-2 px-3 py-2 glass glass-hover text-sm whitespace-nowrap min-h-[44px]">
-        <Calendar class="w-4 h-4" />
-        Year
-      </router-link>
-      <router-link to="/results" class="flex items-center gap-2 px-3 py-2 glass glass-hover text-sm whitespace-nowrap min-h-[44px]">
-        <BarChart3 class="w-4 h-4" />
-        Results
-      </router-link>
     </div>
 
     <!-- Loading skeleton -->
@@ -294,9 +270,9 @@ onMounted(loadAlbums)
 
     <!-- Empty state -->
     <div v-else-if="albums.length === 0" class="text-center py-16">
-      <Music class="w-16 h-16 mx-auto mb-4 text-slate-600" />
-      <h2 class="text-xl font-heading font-medium text-slate-400 mb-2">No albums yet</h2>
-      <p class="text-slate-500 mb-6">
+      <Music class="w-16 h-16 mx-auto mb-4 text-white/40" />
+      <h2 class="text-xl font-heading font-medium text-text-subdued mb-2">No albums yet</h2>
+      <p class="text-text-subdued mb-6">
         {{ isAdmin ? 'Search Spotify to add albums' : 'Waiting for admin to add albums' }}
       </p>
     </div>
@@ -321,8 +297,8 @@ onMounted(loadAlbums)
 
           <div class="flex-1 min-w-0">
             <h3 class="font-heading font-semibold truncate text-sm sm:text-base">{{ album.name }}</h3>
-            <p class="text-xs sm:text-sm text-slate-400 truncate">{{ album.artist }}</p>
-            <p class="text-xs text-slate-500">{{ album.tracks?.length || 0 }} tracks</p>
+            <p class="text-xs sm:text-sm text-text-subdued truncate">{{ album.artist }}</p>
+            <p class="text-xs text-text-subdued">{{ album.tracks?.length || 0 }} tracks</p>
           </div>
 
           <!-- Album score -->
@@ -330,7 +306,7 @@ onMounted(loadAlbums)
             <div v-if="album.average_album_score" class="text-lg sm:text-xl font-heading font-bold" :class="getScoreColor(album.average_album_score)">
               {{ album.average_album_score }}
             </div>
-            <div class="text-xs text-slate-500 hidden sm:block">album</div>
+            <div class="text-xs text-text-subdued hidden sm:block">album</div>
           </div>
 
           <!-- Rate album button -->
@@ -346,13 +322,13 @@ onMounted(loadAlbums)
           <button
             v-if="isAdmin"
             @click.stop="removeAlbum(album.id)"
-            class="hidden sm:flex p-2 text-slate-500 hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] items-center justify-center"
+            class="hidden sm:flex p-2 text-text-subdued hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] items-center justify-center"
           >
             <Trash2 class="w-4 h-4" />
           </button>
 
           <ChevronDown
-            class="w-5 h-5 text-slate-400 transition-transform flex-shrink-0"
+            class="w-5 h-5 text-text-subdued transition-transform flex-shrink-0"
             :class="{ 'rotate-180': expandedAlbumId === album.id }"
           />
         </div>
@@ -362,14 +338,14 @@ onMounted(loadAlbums)
           <template v-if="isMultiDisc(album)">
             <template v-for="item in groupTracksByDisc(album.tracks)" :key="item.type === 'disc' ? `disc-${item.disc_number}` : item.track.id">
               <div v-if="item.type === 'disc'" class="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5">
-                <Disc3 class="w-3.5 h-3.5 text-slate-400" />
-                <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Disc {{ item.disc_number }}</span>
+                <Disc3 class="w-3.5 h-3.5 text-text-subdued" />
+                <span class="text-xs font-medium text-text-subdued uppercase tracking-wider">Disc {{ item.disc_number }}</span>
               </div>
               <div
                 v-else
                 class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
               >
-                <div class="w-6 sm:w-8 text-center text-xs sm:text-sm text-slate-500 flex-shrink-0">
+                <div class="w-6 sm:w-8 text-center text-xs sm:text-sm text-text-subdued flex-shrink-0">
                   {{ item.track.track_number }}
                 </div>
                 <div
@@ -377,18 +353,18 @@ onMounted(loadAlbums)
                   @click="openTrackDetail(item.track, album)"
                 >
                   <p class="truncate text-sm sm:text-base">{{ item.track.name }}</p>
-                  <p class="text-xs text-slate-500">{{ formatDuration(item.track.duration_ms) }}</p>
+                  <p class="text-xs text-text-subdued">{{ formatDuration(item.track.duration_ms) }}</p>
                 </div>
                 <div class="hidden sm:flex items-center gap-3">
                   <div v-for="ranking in item.track.rankings" :key="ranking.user_id" class="text-center">
-                    <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
+                    <div class="text-xs text-text-subdued">{{ ranking.user_name?.split(' ')[0] }}</div>
                     <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
                       {{ ranking.score || '-' }}
                     </div>
                   </div>
                 </div>
                 <div v-if="item.track.average_score" class="text-center min-w-[36px] sm:min-w-[40px]">
-                  <div class="text-xs text-slate-500 hidden sm:block">Avg</div>
+                  <div class="text-xs text-text-subdued hidden sm:block">Avg</div>
                   <div class="font-heading font-bold text-sm sm:text-base" :class="getScoreColor(item.track.average_score)">
                     {{ item.track.average_score }}
                   </div>
@@ -409,7 +385,7 @@ onMounted(loadAlbums)
               :key="track.id"
               class="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-3 hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
             >
-              <div class="w-6 sm:w-8 text-center text-xs sm:text-sm text-slate-500 flex-shrink-0">
+              <div class="w-6 sm:w-8 text-center text-xs sm:text-sm text-text-subdued flex-shrink-0">
                 {{ track.track_number }}
               </div>
               <div
@@ -417,18 +393,18 @@ onMounted(loadAlbums)
                 @click="openTrackDetail(track, album)"
               >
                 <p class="truncate text-sm sm:text-base">{{ track.name }}</p>
-                <p class="text-xs text-slate-500">{{ formatDuration(track.duration_ms) }}</p>
+                <p class="text-xs text-text-subdued">{{ formatDuration(track.duration_ms) }}</p>
               </div>
               <div class="hidden sm:flex items-center gap-3">
                 <div v-for="ranking in track.rankings" :key="ranking.user_id" class="text-center">
-                  <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
+                  <div class="text-xs text-text-subdued">{{ ranking.user_name?.split(' ')[0] }}</div>
                   <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
                     {{ ranking.score || '-' }}
                   </div>
                 </div>
               </div>
               <div v-if="track.average_score" class="text-center min-w-[36px] sm:min-w-[40px]">
-                <div class="text-xs text-slate-500 hidden sm:block">Avg</div>
+                <div class="text-xs text-text-subdued hidden sm:block">Avg</div>
                 <div class="font-heading font-bold text-sm sm:text-base" :class="getScoreColor(track.average_score)">
                   {{ track.average_score }}
                 </div>
@@ -454,18 +430,18 @@ onMounted(loadAlbums)
     >
       <div class="glass w-full max-w-2xl rounded-2xl overflow-hidden">
         <div class="p-4 border-b border-white/10 flex items-center gap-4">
-          <SearchIcon class="w-5 h-5 text-slate-400" />
+          <SearchIcon class="w-5 h-5 text-text-subdued" />
           <input
             v-model="query"
             @input="onSearch"
             type="text"
             placeholder="Search Spotify for albums..."
-            class="flex-1 bg-transparent text-white placeholder-slate-500 focus:outline-none"
+            class="flex-1 bg-transparent text-white placeholder-text-subdued focus:outline-none"
             autofocus
           />
-          <Loader2 v-if="searching" class="w-5 h-5 text-slate-400 animate-spin" />
+          <Loader2 v-if="searching" class="w-5 h-5 text-text-subdued animate-spin" />
           <button @click="closeSearch" class="p-1 hover:bg-white/10 rounded-lg">
-            <X class="w-5 h-5 text-slate-400" />
+            <X class="w-5 h-5 text-text-subdued" />
           </button>
         </div>
 
@@ -484,8 +460,8 @@ onMounted(loadAlbums)
 
               <div class="flex-1 min-w-0">
                 <h3 class="font-heading font-medium truncate">{{ album.name }}</h3>
-                <p class="text-sm text-slate-400 truncate">{{ album.artist }}</p>
-                <p class="text-xs text-slate-500">{{ album.release_date }}</p>
+                <p class="text-sm text-text-subdued truncate">{{ album.artist }}</p>
+                <p class="text-xs text-text-subdued">{{ album.release_date }}</p>
               </div>
 
               <button
@@ -504,11 +480,11 @@ onMounted(loadAlbums)
             </div>
           </div>
 
-          <div v-else-if="query && !searching" class="p-8 text-center text-slate-400">
+          <div v-else-if="query && !searching" class="p-8 text-center text-text-subdued">
             No albums found
           </div>
 
-          <div v-else-if="!query" class="p-8 text-center text-slate-500">
+          <div v-else-if="!query" class="p-8 text-center text-text-subdued">
             Start typing to search Spotify
           </div>
         </div>
@@ -528,14 +504,14 @@ onMounted(loadAlbums)
             <h2 class="font-heading font-semibold text-lg">New Releases</h2>
           </div>
           <button @click="closeNewReleases" class="p-1 hover:bg-white/10 rounded-lg">
-            <X class="w-5 h-5 text-slate-400" />
+            <X class="w-5 h-5 text-text-subdued" />
           </button>
         </div>
 
         <div class="max-h-[70vh] overflow-y-auto">
           <div v-if="loadingReleases" class="p-8 text-center">
-            <Loader2 class="w-8 h-8 text-slate-400 animate-spin mx-auto" />
-            <p class="text-slate-500 mt-2">Loading new releases...</p>
+            <Loader2 class="w-8 h-8 text-text-subdued animate-spin mx-auto" />
+            <p class="text-text-subdued mt-2">Loading new releases...</p>
           </div>
 
           <div v-else-if="newReleases.length > 0" class="p-2 space-y-1">
@@ -552,8 +528,8 @@ onMounted(loadAlbums)
 
               <div class="flex-1 min-w-0">
                 <h3 class="font-heading font-medium truncate">{{ album.name }}</h3>
-                <p class="text-sm text-slate-400 truncate">{{ album.artist }}</p>
-                <p class="text-xs text-slate-500">{{ album.release_date }}</p>
+                <p class="text-sm text-text-subdued truncate">{{ album.artist }}</p>
+                <p class="text-xs text-text-subdued">{{ album.release_date }}</p>
               </div>
 
               <span v-if="addedIds.has(album.spotify_id)" class="flex items-center gap-2 px-3 py-1.5 bg-accent-primary/20 text-accent-primary rounded-lg text-sm">
@@ -573,7 +549,7 @@ onMounted(loadAlbums)
             </div>
           </div>
 
-          <div v-else class="p-8 text-center text-slate-500">
+          <div v-else class="p-8 text-center text-text-subdued">
             No new releases found
           </div>
         </div>

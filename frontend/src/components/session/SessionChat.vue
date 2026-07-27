@@ -248,7 +248,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
         <button
           @click="handleLoadOlder"
           :disabled="loadingOlder"
-          class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 bg-white/5 hover:bg-white/10 rounded-full transition-colors"
+          class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-text-subdued bg-white/5 hover:bg-white/10 rounded-full transition-colors"
         >
           <Loader2 v-if="loadingOlder" class="w-3 h-3 animate-spin" />
           Load earlier messages
@@ -256,25 +256,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
       </div>
 
       <div v-if="!chatMessages.length" class="h-full flex flex-col items-center justify-center text-center py-8">
-        <MessageCircle class="w-10 h-10 text-slate-600 mb-3" />
-        <p class="text-slate-500 text-sm">No messages yet — say hi!</p>
+        <MessageCircle class="w-10 h-10 text-white/40 mb-3" />
+        <p class="text-text-subdued text-sm">No messages yet — say hi!</p>
       </div>
 
       <template v-for="item in groupedMessages" :key="item.key">
         <!-- Time divider -->
         <div v-if="item.kind === 'divider'" class="flex items-center gap-3 py-2">
           <div class="flex-1 h-px bg-white/10"></div>
-          <span class="text-[10px] text-slate-500 uppercase tracking-wider">{{ formatDivider(item.ts) }}</span>
+          <span class="text-[10px] text-text-subdued uppercase tracking-wider">{{ formatDivider(item.ts) }}</span>
           <div class="flex-1 h-px bg-white/10"></div>
         </div>
 
         <!-- Message -->
         <div v-else class="group relative" :class="item.showHeader ? 'mt-2' : ''">
           <div v-if="item.showHeader" class="flex items-baseline gap-2 mb-0.5">
-            <span class="text-sm font-medium" :class="isMine(item.message) ? 'text-accent-primary' : 'text-slate-200'">
+            <span class="text-sm font-medium" :class="isMine(item.message) ? 'text-accent-primary' : 'text-white'">
               {{ item.message.user_name }}
             </span>
-            <span class="text-[10px] text-slate-500">{{ formatTime(item.message.created_at) }}</span>
+            <span class="text-[10px] text-text-subdued">{{ formatTime(item.message.created_at) }}</span>
           </div>
           <div class="flex items-start gap-2">
             <!-- GIF message -->
@@ -290,7 +290,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
             <!-- Text message (emoji-only renders jumbo) -->
             <p
               v-else
-              class="text-slate-300 whitespace-pre-wrap break-words flex-1 min-w-0"
+              class="text-white/90 whitespace-pre-wrap break-words flex-1 min-w-0"
               :class="[
                 item.message.pending ? 'opacity-50' : '',
                 isEmojiOnly(item.message.content) ? 'text-4xl leading-tight' : 'text-sm'
@@ -300,7 +300,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
             <button
               v-if="canChat && item.message.id"
               @click="reactionPickerFor = reactionPickerFor === item.message.id ? null : item.message.id"
-              class="p-1 rounded-md text-slate-500 hover:text-slate-300 hover:bg-white/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity flex-shrink-0"
+              class="p-1 rounded-md text-text-subdued hover:text-white/90 hover:bg-white/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity flex-shrink-0"
               aria-label="Add reaction"
             >
               <SmilePlus class="w-4 h-4" />
@@ -310,7 +310,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
           <!-- Reaction picker -->
           <div
             v-if="reactionPickerFor === item.message.id"
-            class="absolute right-0 z-10 flex gap-1 p-1.5 rounded-xl bg-slate-800 border border-white/10 shadow-xl"
+            class="absolute right-0 z-10 flex gap-1 p-1.5 rounded-xl bg-surface-elevated border border-white/10 shadow-xl"
           >
             <button
               v-for="emoji in REACTION_SET"
@@ -329,7 +329,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
               class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors"
               :class="chip.mine
                 ? 'bg-accent-primary/20 border-accent-primary/50 text-accent-primary'
-                : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
+                : 'bg-white/5 border-white/10 text-text-subdued hover:bg-white/10'"
               :title="chip.names.join(', ')"
             >
               <span>{{ chip.emoji }}</span>
@@ -351,7 +351,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
     </div>
 
     <!-- Typing indicator -->
-    <div class="h-5 px-4 text-xs text-slate-500 italic">
+    <div class="h-5 px-4 text-xs text-text-subdued italic">
       <span v-if="typingLabel" class="animate-pulse">{{ typingLabel }}</span>
     </div>
 
@@ -360,7 +360,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
       <!-- Emoji picker panel -->
       <div
         v-if="showEmojiPicker"
-        class="absolute bottom-full left-2 right-2 sm:right-auto sm:w-80 mb-1 z-20 rounded-xl bg-slate-800 border border-white/10 shadow-xl overflow-hidden"
+        class="absolute bottom-full left-2 right-2 sm:right-auto sm:w-80 mb-1 z-20 rounded-xl bg-surface-elevated border border-white/10 shadow-xl overflow-hidden"
       >
         <div class="flex items-center gap-0.5 px-2 pt-2">
           <button
@@ -375,7 +375,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
         </div>
         <div class="h-52 overflow-y-auto p-2">
           <template v-if="recentEmojis.length && activeEmojiCategory === 0">
-            <p class="text-[10px] text-slate-500 uppercase tracking-wider px-1 pb-1">Recent</p>
+            <p class="text-[10px] text-text-subdued uppercase tracking-wider px-1 pb-1">Recent</p>
             <div class="grid grid-cols-8 gap-0.5 pb-2">
               <button
                 v-for="emoji in recentEmojis"
@@ -385,7 +385,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
                 class="w-9 h-9 flex items-center justify-center text-xl hover:bg-white/10 rounded-lg transition-colors"
               >{{ emoji }}</button>
             </div>
-            <p class="text-[10px] text-slate-500 uppercase tracking-wider px-1 pb-1">{{ EMOJI_CATEGORIES[activeEmojiCategory].name }}</p>
+            <p class="text-[10px] text-text-subdued uppercase tracking-wider px-1 pb-1">{{ EMOJI_CATEGORIES[activeEmojiCategory].name }}</p>
           </template>
           <div class="grid grid-cols-8 gap-0.5">
             <button
@@ -402,28 +402,28 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
       <!-- GIF picker panel -->
       <div
         v-if="showGifPicker"
-        class="absolute bottom-full left-2 right-2 mb-1 z-20 rounded-xl bg-slate-800 border border-white/10 shadow-xl overflow-hidden"
+        class="absolute bottom-full left-2 right-2 mb-1 z-20 rounded-xl bg-surface-elevated border border-white/10 shadow-xl overflow-hidden"
       >
         <div class="p-2 border-b border-white/10">
           <div class="relative">
-            <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+            <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-subdued" />
             <input
               v-model="gifQuery"
               @input="onGifQueryInput"
               type="text"
               placeholder="Search GIFs…"
-              class="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-primary/50"
+              class="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-text-subdued focus:outline-none focus:border-accent-primary/50"
             />
           </div>
         </div>
         <div class="h-56 overflow-y-auto p-2">
           <div v-if="gifLoading" class="h-full flex items-center justify-center">
-            <Loader2 class="w-5 h-5 text-slate-500 animate-spin" />
+            <Loader2 class="w-5 h-5 text-text-subdued animate-spin" />
           </div>
-          <p v-else-if="gifError" class="h-full flex items-center justify-center text-sm text-slate-500 text-center px-4">
+          <p v-else-if="gifError" class="h-full flex items-center justify-center text-sm text-text-subdued text-center px-4">
             {{ gifError }}
           </p>
-          <p v-else-if="!gifs.length" class="h-full flex items-center justify-center text-sm text-slate-500">
+          <p v-else-if="!gifs.length" class="h-full flex items-center justify-center text-sm text-text-subdued">
             No GIFs found
           </p>
           <div v-else class="columns-2 sm:columns-3 gap-1.5">
@@ -438,7 +438,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
             </button>
           </div>
         </div>
-        <p class="px-2 py-1 text-[10px] text-slate-600 border-t border-white/10">Powered by GIPHY</p>
+        <p class="px-2 py-1 text-[10px] text-white/40 border-t border-white/10">Powered by GIPHY</p>
       </div>
 
       <form v-if="canChat" @submit.prevent="handleSend" class="flex items-end gap-2">
@@ -446,7 +446,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
           type="button"
           @click="toggleEmojiPicker"
           class="p-2.5 rounded-xl transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-          :class="showEmojiPicker ? 'bg-white/15 text-white' : 'text-slate-500 hover:text-slate-300 hover:bg-white/10'"
+          :class="showEmojiPicker ? 'bg-white/15 text-white' : 'text-text-subdued hover:text-white/90 hover:bg-white/10'"
           aria-label="Emoji picker"
         >
           <Smile class="w-5 h-5" />
@@ -455,7 +455,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
           type="button"
           @click="toggleGifPicker"
           class="p-2 rounded-xl text-[11px] font-bold tracking-wide transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-          :class="showGifPicker ? 'bg-white/15 text-white' : 'text-slate-500 hover:text-slate-300 hover:bg-white/10'"
+          :class="showGifPicker ? 'bg-white/15 text-white' : 'text-text-subdued hover:text-white/90 hover:bg-white/10'"
           aria-label="GIF picker"
         >GIF</button>
         <textarea
@@ -466,7 +466,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
           rows="1"
           maxlength="1000"
           placeholder="Send a message…"
-          class="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-primary/50 resize-none"
+          class="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-text-subdued focus:outline-none focus:border-accent-primary/50 resize-none"
         ></textarea>
         <button
           type="submit"
@@ -477,7 +477,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
           <Send class="w-4 h-4" />
         </button>
       </form>
-      <p v-else class="text-center text-sm text-slate-500 py-2">Sign in to join the chat</p>
+      <p v-else class="text-center text-sm text-text-subdued py-2">Sign in to join the chat</p>
     </div>
   </div>
 </template>

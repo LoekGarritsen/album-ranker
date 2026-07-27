@@ -31,7 +31,7 @@ async function loadReview() {
 }
 
 function getScoreColor(score) {
-  if (!score) return 'text-slate-500'
+  if (!score) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -69,11 +69,11 @@ watch([selectedYear, currentUser], loadReview)
       </select>
     </div>
 
-    <div v-if="!currentUser" class="text-center py-12 text-slate-400">
+    <div v-if="!currentUser" class="text-center py-12 text-text-subdued">
       Select a user to see their year in review
     </div>
 
-    <div v-else-if="loading" class="text-center py-12 text-slate-400">
+    <div v-else-if="loading" class="text-center py-12 text-text-subdued">
       Loading year review...
     </div>
 
@@ -83,26 +83,26 @@ watch([selectedYear, currentUser], loadReview)
         <div class="glass p-4 text-center">
           <Disc3 class="w-8 h-8 mx-auto mb-2 text-accent-primary" />
           <div class="text-3xl font-heading font-bold">{{ review.albums_rated || 0 }}</div>
-          <div class="text-sm text-slate-400">Albums Rated</div>
+          <div class="text-sm text-text-subdued">Albums Rated</div>
         </div>
         <div class="glass p-4 text-center">
           <Music class="w-8 h-8 mx-auto mb-2 text-blue-400" />
           <div class="text-3xl font-heading font-bold">{{ review.tracks_rated || 0 }}</div>
-          <div class="text-sm text-slate-400">Tracks Rated</div>
+          <div class="text-sm text-text-subdued">Tracks Rated</div>
         </div>
         <div class="glass p-4 text-center">
           <Star class="w-8 h-8 mx-auto mb-2 text-yellow-400" />
           <div class="text-3xl font-heading font-bold" :class="getScoreColor(review.average_album_score)">
             {{ review.average_album_score || '-' }}
           </div>
-          <div class="text-sm text-slate-400">Avg Album Score</div>
+          <div class="text-sm text-text-subdued">Avg Album Score</div>
         </div>
         <div class="glass p-4 text-center">
           <Star class="w-8 h-8 mx-auto mb-2 text-purple-400" />
           <div class="text-3xl font-heading font-bold" :class="getScoreColor(review.average_track_score)">
             {{ review.average_track_score || '-' }}
           </div>
-          <div class="text-sm text-slate-400">Avg Track Score</div>
+          <div class="text-sm text-text-subdued">Avg Track Score</div>
         </div>
       </div>
 
@@ -121,10 +121,10 @@ watch([selectedYear, currentUser], loadReview)
                 class="w-full bg-accent-primary/60 rounded-t transition-all"
               ></div>
             </div>
-            <span class="text-[10px] sm:text-xs text-slate-500">{{ month.slice(0, 1) }}</span>
+            <span class="text-[10px] sm:text-xs text-text-subdued">{{ month.slice(0, 1) }}</span>
           </div>
         </div>
-        <div class="flex justify-between text-xs text-slate-500 mt-2 sm:hidden">
+        <div class="flex justify-between text-xs text-text-subdued mt-2 sm:hidden">
           <span>Jan</span>
           <span>Dec</span>
         </div>
@@ -142,14 +142,14 @@ watch([selectedYear, currentUser], loadReview)
             :key="i"
             class="flex items-center gap-3 p-3 bg-white/5 rounded-xl"
           >
-            <div class="text-2xl font-heading font-bold text-slate-600 w-8">{{ i + 1 }}</div>
+            <div class="text-2xl font-heading font-bold text-white/40 w-8">{{ i + 1 }}</div>
             <img
               :src="album.cover_url || '/placeholder.svg'"
               class="w-12 h-12 rounded object-cover bg-white/10"
             />
             <div class="flex-1 min-w-0">
               <p class="truncate font-medium">{{ album.name }}</p>
-              <p class="text-sm text-slate-400 truncate">{{ album.artist }}</p>
+              <p class="text-sm text-text-subdued truncate">{{ album.artist }}</p>
             </div>
             <div class="text-xl font-heading font-bold" :class="getScoreColor(album.score)">
               {{ album.score?.toFixed(1) }}
@@ -170,14 +170,14 @@ watch([selectedYear, currentUser], loadReview)
             :key="i"
             class="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg transition-colors"
           >
-            <div class="text-sm font-medium text-slate-500 w-6">{{ i + 1 }}</div>
+            <div class="text-sm font-medium text-text-subdued w-6">{{ i + 1 }}</div>
             <img
               :src="track.cover_url || '/placeholder.svg'"
               class="w-10 h-10 rounded object-cover bg-white/10"
             />
             <div class="flex-1 min-w-0">
               <p class="truncate">{{ track.name }}</p>
-              <p class="text-xs text-slate-500 truncate">{{ track.album_name }}</p>
+              <p class="text-xs text-text-subdued truncate">{{ track.album_name }}</p>
             </div>
             <div class="font-heading font-bold" :class="getScoreColor(track.score)">
               {{ track.score?.toFixed(1) }}
@@ -204,7 +204,7 @@ watch([selectedYear, currentUser], loadReview)
             />
             <div class="flex-1 min-w-0">
               <p class="truncate">{{ track.name }}</p>
-              <p class="text-xs text-slate-500 truncate">{{ track.album_name }}</p>
+              <p class="text-xs text-text-subdued truncate">{{ track.album_name }}</p>
             </div>
             <div class="font-heading font-bold" :class="getScoreColor(track.score)">
               {{ track.score?.toFixed(1) }}
@@ -214,7 +214,7 @@ watch([selectedYear, currentUser], loadReview)
       </div>
 
       <!-- Empty State -->
-      <div v-if="!review.tracks_rated && !review.albums_rated" class="text-center py-12 text-slate-400">
+      <div v-if="!review.tracks_rated && !review.albums_rated" class="text-center py-12 text-text-subdued">
         No ratings found for {{ selectedYear }}
       </div>
     </div>

@@ -31,7 +31,7 @@ async function loadTrack() {
 }
 
 function getScoreColor(score) {
-  if (!score) return 'text-slate-500'
+  if (!score) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -80,8 +80,8 @@ onMounted(loadTrack)
         />
         <div v-if="track" class="flex-1 min-w-0">
           <h2 class="font-heading font-semibold text-base sm:text-lg truncate text-white">{{ track.name }}</h2>
-          <p class="text-xs sm:text-sm text-slate-400 truncate">{{ track.artist }} · {{ track.album_name }}</p>
-          <p class="text-xs text-slate-500">{{ formatDuration(track.duration_ms) }}</p>
+          <p class="text-xs sm:text-sm text-text-subdued truncate">{{ track.artist }} · {{ track.album_name }}</p>
+          <p class="text-xs text-text-subdued">{{ formatDuration(track.duration_ms) }}</p>
         </div>
         <div v-if="track" class="flex-shrink-0">
           <button
@@ -104,11 +104,11 @@ onMounted(loadTrack)
       <div class="flex-1 overflow-hidden">
         <!-- Loading -->
         <div v-if="loading" class="flex items-center justify-center h-64">
-          <Loader2 class="w-8 h-8 text-slate-400 animate-spin" />
+          <Loader2 class="w-8 h-8 text-text-subdued animate-spin" />
         </div>
 
         <!-- Error -->
-        <div v-else-if="error" class="flex items-center justify-center h-64 text-slate-400">
+        <div v-else-if="error" class="flex items-center justify-center h-64 text-text-subdued">
           {{ error }}
         </div>
 
@@ -117,10 +117,10 @@ onMounted(loadTrack)
           <!-- Lyrics -->
           <div class="p-4 sm:p-5 overflow-y-auto border-b md:border-b-0 md:border-r border-white/10 max-h-[40vh] sm:max-h-[60vh] bg-black/20">
             <h3 class="font-heading font-semibold text-white mb-3 sm:mb-4">Lyrics</h3>
-            <div v-if="track.lyrics" class="text-sm text-slate-300 whitespace-pre-line leading-relaxed">
+            <div v-if="track.lyrics" class="text-sm text-white/90 whitespace-pre-line leading-relaxed">
               {{ track.lyrics }}
             </div>
-            <div v-else class="text-slate-500 italic text-sm">
+            <div v-else class="text-text-subdued italic text-sm">
               No lyrics available
             </div>
           </div>
@@ -144,17 +144,17 @@ onMounted(loadTrack)
                     {{ ranking.score?.toFixed(1) }}
                   </span>
                 </div>
-                <div v-if="ranking.comment" class="text-xs sm:text-sm text-slate-400 flex items-start gap-2">
-                  <MessageCircle class="w-4 h-4 mt-0.5 flex-shrink-0 text-slate-500" />
+                <div v-if="ranking.comment" class="text-xs sm:text-sm text-text-subdued flex items-start gap-2">
+                  <MessageCircle class="w-4 h-4 mt-0.5 flex-shrink-0 text-text-subdued" />
                   <span>{{ ranking.comment }}</span>
                 </div>
-                <div v-else class="text-xs sm:text-sm text-slate-600 italic">
+                <div v-else class="text-xs sm:text-sm text-white/40 italic">
                   No comment
                 </div>
               </div>
             </div>
 
-            <div v-else class="text-slate-500 italic text-sm">
+            <div v-else class="text-text-subdued italic text-sm">
               No ratings yet
             </div>
           </div>

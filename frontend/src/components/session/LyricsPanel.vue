@@ -59,20 +59,20 @@ watch(() => props.track?.spotifyId, () => {
     <div class="flex items-center gap-3 p-4 border-b border-white/10">
       <Mic class="w-5 h-5 text-accent-primary" />
       <span class="font-medium">Lyrics</span>
-      <span v-if="track && hasSynced" class="text-xs text-slate-500 ml-auto truncate">{{ track.name }}</span>
+      <span v-if="track && hasSynced" class="text-xs text-text-subdued ml-auto truncate">{{ track.name }}</span>
     </div>
 
     <!-- Nothing playing -->
-    <div v-if="!track" class="p-8 text-center text-slate-500 text-sm">
-      <Music class="w-8 h-8 mx-auto mb-2 text-slate-600" />
+    <div v-if="!track" class="p-8 text-center text-text-subdued text-sm">
+      <Music class="w-8 h-8 mx-auto mb-2 text-white/40" />
       Nothing playing
     </div>
 
-    <div v-else-if="loading" class="p-8 text-center text-slate-500 text-sm">
+    <div v-else-if="loading" class="p-8 text-center text-text-subdued text-sm">
       Looking up lyrics…
     </div>
 
-    <div v-else-if="instrumental" class="p-8 text-center text-slate-500 text-sm">
+    <div v-else-if="instrumental" class="p-8 text-center text-text-subdued text-sm">
       ♪ Instrumental
     </div>
 
@@ -90,7 +90,7 @@ watch(() => props.track?.spotifyId, () => {
         class="py-1.5 text-lg leading-snug transition-all duration-300 font-heading"
         :class="i === activeIndex
           ? 'text-white font-semibold scale-[1.02] origin-left'
-          : i < activeIndex ? 'text-slate-500' : 'text-slate-400'"
+          : i < activeIndex ? 'text-text-subdued' : 'text-text-subdued'"
       >
         {{ line.text || '♪' }}
       </p>
@@ -99,11 +99,11 @@ watch(() => props.track?.spotifyId, () => {
 
     <!-- Plain lyrics fallback (no timestamps) -->
     <div v-else-if="plainLyrics" class="max-h-[420px] overflow-y-auto px-5 py-6">
-      <p class="text-xs text-slate-500 mb-3">No synced version — plain lyrics</p>
-      <p class="whitespace-pre-line text-slate-300 leading-relaxed">{{ plainLyrics }}</p>
+      <p class="text-xs text-text-subdued mb-3">No synced version — plain lyrics</p>
+      <p class="whitespace-pre-line text-white/90 leading-relaxed">{{ plainLyrics }}</p>
     </div>
 
-    <div v-else class="p-8 text-center text-slate-500 text-sm">
+    <div v-else class="p-8 text-center text-text-subdued text-sm">
       No lyrics found for this track
     </div>
   </div>

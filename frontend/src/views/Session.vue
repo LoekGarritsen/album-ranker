@@ -549,12 +549,12 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <router-link to="/rooms" class="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-4 py-2 min-h-[44px]">
+    <router-link to="/rooms" class="inline-flex items-center gap-2 text-text-subdued hover:text-white mb-4 py-2 min-h-[44px]">
       <ChevronLeft class="w-4 h-4" />
       All Rooms
     </router-link>
 
-    <div v-if="loading" class="text-center py-12 text-slate-400">
+    <div v-if="loading" class="text-center py-12 text-text-subdued">
       Loading session...
     </div>
 
@@ -569,7 +569,7 @@ onUnmounted(() => {
               class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl object-cover bg-white/10"
             />
             <div v-else class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl bg-white/10 flex items-center justify-center">
-              <component :is="isHangout ? MessageCircle : Disc3" class="w-12 h-12 text-slate-500" />
+              <component :is="isHangout ? MessageCircle : Disc3" class="w-12 h-12 text-text-subdued" />
             </div>
           </div>
           <div class="flex-1 text-center sm:text-left min-w-0">
@@ -584,13 +584,13 @@ onUnmounted(() => {
               <h1 class="text-xl sm:text-2xl font-heading font-bold mb-1 truncate">
                 {{ media?.name || 'Hanging out' }}
               </h1>
-              <p class="text-slate-400 mb-4 truncate">{{ media?.artist || 'Chat with friends — put on anything from Spotify' }}</p>
+              <p class="text-text-subdued mb-4 truncate">{{ media?.artist || 'Chat with friends — put on anything from Spotify' }}</p>
             </template>
             <template v-else>
               <h1 v-if="album" class="text-xl sm:text-2xl font-heading font-bold mb-1 truncate">{{ album.name }}</h1>
-              <h1 v-else class="text-xl sm:text-2xl font-heading font-bold mb-1 text-slate-400">No album selected</h1>
-              <p v-if="album" class="text-slate-400 mb-4 truncate">{{ album.artist }}</p>
-              <p v-else class="text-slate-500 mb-4">Pick an album from the library to rank together</p>
+              <h1 v-else class="text-xl sm:text-2xl font-heading font-bold mb-1 text-text-subdued">No album selected</h1>
+              <p v-if="album" class="text-text-subdued mb-4 truncate">{{ album.artist }}</p>
+              <p v-else class="text-text-subdued mb-4">Pick an album from the library to rank together</p>
             </template>
 
             <!-- Code + mode-specific actions -->
@@ -717,7 +717,7 @@ onUnmounted(() => {
             <button
               @click="handleSpotifyConnect"
               class="px-3 py-1.5 rounded-full text-xs font-medium min-h-[36px] flex-shrink-0 transition-colors"
-              :class="spotifyConnected ? 'border border-slate-600 text-slate-300 hover:bg-white/10' : 'bg-[#1DB954] text-black hover:bg-[#1ed760]'"
+              :class="spotifyConnected ? 'border border-white/30 text-white/90 hover:bg-white/10' : 'bg-[#1DB954] text-black hover:bg-[#1ed760]'"
             >
               {{ spotifyConnected ? 'Disconnect' : 'Connect' }}
             </button>
@@ -728,7 +728,7 @@ onUnmounted(() => {
             <div class="flex items-center gap-3 mb-3">
               <Users class="w-5 h-5 text-accent-primary" />
               <span class="font-medium">Here Now</span>
-              <span class="text-sm text-slate-400">({{ listeners.length }})</span>
+              <span class="text-sm text-text-subdued">({{ listeners.length }})</span>
             </div>
             <div class="flex flex-wrap gap-2">
               <div
@@ -741,7 +741,7 @@ onUnmounted(() => {
                 <span>{{ listener.user_name }}</span>
                 <span v-if="listener.user_id === currentUser?.id" class="text-xs text-accent-primary">(you)</span>
               </div>
-              <div v-if="listeners.length === 0" class="text-slate-500 text-sm">
+              <div v-if="listeners.length === 0" class="text-text-subdued text-sm">
                 No one here yet — share the code
               </div>
             </div>
@@ -764,9 +764,9 @@ onUnmounted(() => {
         <div class="lg:col-span-2 space-y-4">
           <!-- Album picker prompt -->
           <div v-if="!hasAlbum" class="glass p-8 text-center">
-            <Disc3 class="w-16 h-16 mx-auto mb-4 text-slate-500" />
-            <h2 class="text-xl font-heading font-medium text-slate-300 mb-2">No album selected</h2>
-            <p class="text-slate-500 mb-6">Choose an album from the library to rank together</p>
+            <Disc3 class="w-16 h-16 mx-auto mb-4 text-text-subdued" />
+            <h2 class="text-xl font-heading font-medium text-white/90 mb-2">No album selected</h2>
+            <p class="text-text-subdued mb-6">Choose an album from the library to rank together</p>
             <button
               @click="showAlbumPicker = true"
               class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
@@ -802,7 +802,7 @@ onUnmounted(() => {
                   role="tab"
                   :aria-selected="mainTab === 'tracks'"
                   class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
-                  :class="mainTab === 'tracks' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'"
+                  :class="mainTab === 'tracks' ? 'bg-white/10 text-white' : 'text-text-subdued hover:text-white hover:bg-white/5'"
                 >
                   <ListMusic class="w-4 h-4" />
                   Tracks
@@ -812,7 +812,7 @@ onUnmounted(() => {
                   role="tab"
                   :aria-selected="mainTab === 'stats'"
                   class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
-                  :class="mainTab === 'stats' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'"
+                  :class="mainTab === 'stats' ? 'bg-white/10 text-white' : 'text-text-subdued hover:text-white hover:bg-white/5'"
                 >
                   <BarChart3 class="w-4 h-4" />
                   Stats
@@ -822,7 +822,7 @@ onUnmounted(() => {
                   role="tab"
                   :aria-selected="mainTab === 'lyrics'"
                   class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
-                  :class="mainTab === 'lyrics' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'"
+                  :class="mainTab === 'lyrics' ? 'bg-white/10 text-white' : 'text-text-subdued hover:text-white hover:bg-white/5'"
                 >
                   <Mic class="w-4 h-4" />
                   Lyrics
@@ -867,13 +867,13 @@ onUnmounted(() => {
                 <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-[#1DB954]' : ''">
                   {{ spotifyReady ? 'Spotify ready' : spotifyConnected ? (spotifyError || 'Starting player…') : 'Connect Spotify' }}
                 </p>
-                <p v-if="!spotifyConnected" class="text-xs text-slate-500">Play in sync (Premium)</p>
+                <p v-if="!spotifyConnected" class="text-xs text-text-subdued">Play in sync (Premium)</p>
               </div>
             </div>
             <button
               @click="handleSpotifyConnect"
               class="px-3 py-1.5 rounded-full text-xs font-medium min-h-[36px] flex-shrink-0 transition-colors flex items-center gap-1.5"
-              :class="spotifyConnected ? 'border border-slate-600 text-slate-300 hover:bg-white/10' : 'bg-[#1DB954] text-black hover:bg-[#1ed760]'"
+              :class="spotifyConnected ? 'border border-white/30 text-white/90 hover:bg-white/10' : 'bg-[#1DB954] text-black hover:bg-[#1ed760]'"
             >
               <Unplug v-if="spotifyConnected" class="w-3.5 h-3.5" />
               {{ spotifyConnected ? 'Disconnect' : 'Connect' }}
@@ -885,7 +885,7 @@ onUnmounted(() => {
             <div class="flex items-center gap-3 mb-3">
               <Users class="w-5 h-5 text-accent-primary" />
               <span class="font-medium">Listening Now</span>
-              <span class="text-sm text-slate-400">({{ listeners.length }})</span>
+              <span class="text-sm text-text-subdued">({{ listeners.length }})</span>
             </div>
             <div class="flex flex-wrap gap-2">
               <div
@@ -898,7 +898,7 @@ onUnmounted(() => {
                 <span>{{ listener.user_name }}</span>
                 <span v-if="listener.user_id === currentUser?.id" class="text-xs text-accent-primary">(you)</span>
               </div>
-              <div v-if="listeners.length === 0" class="text-slate-500 text-sm">
+              <div v-if="listeners.length === 0" class="text-text-subdued text-sm">
                 No one is listening yet
               </div>
             </div>
@@ -918,7 +918,7 @@ onUnmounted(() => {
               >
                 {{ unreadChatCount }}
               </span>
-              <component :is="chatOpen ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400 ml-auto" />
+              <component :is="chatOpen ? ChevronUp : ChevronDown" class="w-4 h-4 text-text-subdued ml-auto" />
             </button>
             <SessionChat v-if="chatOpen" :current-user="currentUser" />
           </div>

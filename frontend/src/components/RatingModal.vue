@@ -91,7 +91,7 @@ const displayScore = computed(() => {
             class="w-16 h-16 rounded-lg object-cover bg-white/10"
           />
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 text-xs text-slate-500 mb-1">
+            <div class="flex items-center gap-2 text-xs text-text-subdued mb-1">
               <Disc3 v-if="type === 'album'" class="w-3 h-3" />
               <Music v-else class="w-3 h-3" />
               {{ type === 'album' ? 'Rating Album' : 'Rating Track' }}
@@ -99,7 +99,7 @@ const displayScore = computed(() => {
             <h3 class="font-heading font-semibold truncate">
               {{ type === 'album' ? album.name : item.name }}
             </h3>
-            <p class="text-sm text-slate-400 truncate">{{ album.artist }}</p>
+            <p class="text-sm text-text-subdued truncate">{{ album.artist }}</p>
           </div>
         </div>
       </div>
@@ -111,7 +111,7 @@ const displayScore = computed(() => {
           <div class="text-5xl font-heading font-bold" :class="getScoreColor(score)">
             {{ displayScore }}
           </div>
-          <div class="text-sm text-slate-400 mt-1">{{ getScoreLabel(score) }}</div>
+          <div class="text-sm text-text-subdued mt-1">{{ getScoreLabel(score) }}</div>
         </div>
 
         <!-- Quick score buttons -->
@@ -124,7 +124,7 @@ const displayScore = computed(() => {
             class="py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors"
             :class="Math.round(parseFloat(score)) === n
               ? 'bg-accent-primary text-black'
-              : 'bg-white/5 hover:bg-white/15 text-slate-300'"
+              : 'bg-white/5 hover:bg-white/15 text-white/90'"
           >
             {{ n }}
           </button>
@@ -141,7 +141,7 @@ const displayScore = computed(() => {
             class="w-full"
             aria-label="Score"
           />
-          <div class="flex justify-between text-xs text-slate-500 mt-2">
+          <div class="flex justify-between text-xs text-text-subdued mt-2">
             <span>1.0</span>
             <span>10.0</span>
           </div>
@@ -149,7 +149,7 @@ const displayScore = computed(() => {
 
         <!-- Comment -->
         <div class="mb-6">
-          <label class="block text-sm text-slate-400 mb-2">Comment (optional)</label>
+          <label class="block text-sm text-text-subdued mb-2">Comment (optional)</label>
           <textarea
             v-model="comment"
             :placeholder="type === 'album' ? 'Thoughts on this album?' : 'Thoughts on this track?'"

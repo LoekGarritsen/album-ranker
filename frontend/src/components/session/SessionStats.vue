@@ -10,7 +10,7 @@ const props = defineProps({
 const emit = defineEmits(['rate-album'])
 
 function getScoreColor(score) {
-  if (score == null) return 'text-slate-500'
+  if (score == null) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -120,9 +120,9 @@ const hasAnyRatings = computed(() =>
   <div class="space-y-4">
     <!-- Empty state -->
     <div v-if="!hasAnyRatings" class="glass p-8 text-center">
-      <BarChart3 class="w-12 h-12 mx-auto mb-3 text-slate-600" />
-      <p class="text-slate-400 font-medium mb-1">No ratings yet</p>
-      <p class="text-sm text-slate-500">Stats appear as people rate tracks</p>
+      <BarChart3 class="w-12 h-12 mx-auto mb-3 text-white/40" />
+      <p class="text-text-subdued font-medium mb-1">No ratings yet</p>
+      <p class="text-sm text-text-subdued">Stats appear as people rate tracks</p>
     </div>
 
     <template v-else>
@@ -133,28 +133,28 @@ const hasAnyRatings = computed(() =>
           <div class="text-2xl font-heading font-bold" :class="getScoreColor(groupAlbumAvg)">
             {{ groupAlbumAvg != null ? groupAlbumAvg.toFixed(1) : '–' }}
           </div>
-          <div class="text-xs text-slate-400">Album Score</div>
+          <div class="text-xs text-text-subdued">Album Score</div>
         </div>
         <div class="glass p-4 text-center">
           <Music class="w-6 h-6 mx-auto mb-1.5 text-blue-400" />
           <div class="text-2xl font-heading font-bold" :class="getScoreColor(groupTrackAvg)">
             {{ groupTrackAvg != null ? groupTrackAvg.toFixed(1) : '–' }}
           </div>
-          <div class="text-xs text-slate-400">Track Average</div>
+          <div class="text-xs text-text-subdued">Track Average</div>
         </div>
         <div class="glass p-4 text-center">
           <User class="w-6 h-6 mx-auto mb-1.5 text-purple-400" />
           <div class="text-2xl font-heading font-bold" :class="getScoreColor(myAvg)">
             {{ myAvg != null ? myAvg.toFixed(1) : '–' }}
           </div>
-          <div class="text-xs text-slate-400">Your Average</div>
+          <div class="text-xs text-text-subdued">Your Average</div>
         </div>
         <div class="glass p-4 text-center">
           <ListChecks class="w-6 h-6 mx-auto mb-1.5 text-yellow-400" />
           <div class="text-2xl font-heading font-bold" :class="myRatedCount === tracks.length ? 'text-green-400' : ''">
             {{ myRatedCount }}/{{ tracks.length }}
           </div>
-          <div class="text-xs text-slate-400">Your Progress</div>
+          <div class="text-xs text-text-subdued">Your Progress</div>
         </div>
       </div>
 
@@ -172,21 +172,21 @@ const hasAnyRatings = computed(() =>
       <div v-if="bestTrack" class="glass p-4 space-y-2.5">
         <div class="flex items-center gap-2 text-sm min-w-0">
           <TrendingUp class="w-4 h-4 text-green-400 flex-shrink-0" />
-          <span class="text-slate-500 flex-shrink-0">Best:</span>
-          <span class="truncate text-slate-300">{{ bestTrack.track.name }}</span>
+          <span class="text-text-subdued flex-shrink-0">Best:</span>
+          <span class="truncate text-white/90">{{ bestTrack.track.name }}</span>
           <span class="font-heading font-bold ml-auto flex-shrink-0" :class="getScoreColor(bestTrack.avg)">{{ bestTrack.avg.toFixed(1) }}</span>
         </div>
         <div v-if="worstTrack && worstTrack.track.id !== bestTrack.track.id" class="flex items-center gap-2 text-sm min-w-0">
           <TrendingDown class="w-4 h-4 text-red-400 flex-shrink-0" />
-          <span class="text-slate-500 flex-shrink-0">Worst:</span>
-          <span class="truncate text-slate-300">{{ worstTrack.track.name }}</span>
+          <span class="text-text-subdued flex-shrink-0">Worst:</span>
+          <span class="truncate text-white/90">{{ worstTrack.track.name }}</span>
           <span class="font-heading font-bold ml-auto flex-shrink-0" :class="getScoreColor(worstTrack.avg)">{{ worstTrack.avg.toFixed(1) }}</span>
         </div>
         <div v-if="biggestSplit" class="flex items-center gap-2 text-sm min-w-0">
           <Scale class="w-4 h-4 text-orange-400 flex-shrink-0" />
-          <span class="text-slate-500 flex-shrink-0">Most divisive:</span>
-          <span class="truncate text-slate-300">{{ biggestSplit.track.name }}</span>
-          <span class="text-xs text-slate-500 ml-auto flex-shrink-0">
+          <span class="text-text-subdued flex-shrink-0">Most divisive:</span>
+          <span class="truncate text-white/90">{{ biggestSplit.track.name }}</span>
+          <span class="text-xs text-text-subdued ml-auto flex-shrink-0">
             {{ biggestSplit.min.toFixed(1) }}–{{ biggestSplit.max.toFixed(1) }}
             <span class="text-orange-400">(Δ{{ biggestSplit.range.toFixed(1) }})</span>
           </span>
@@ -199,23 +199,23 @@ const hasAnyRatings = computed(() =>
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-white/10 text-left">
-                <th class="px-3 sm:px-4 py-2.5 font-medium text-slate-400 text-xs uppercase tracking-wider">Track</th>
+                <th class="px-3 sm:px-4 py-2.5 font-medium text-text-subdued text-xs uppercase tracking-wider">Track</th>
                 <th
                   v-for="rater in raters"
                   :key="rater.user_id"
-                  class="px-2 py-2.5 font-medium text-slate-400 text-xs text-center"
+                  class="px-2 py-2.5 font-medium text-text-subdued text-xs text-center"
                   :class="{ 'text-accent-primary': rater.user_id === currentUser?.id }"
                 >
                   {{ rater.user_name?.split(' ')[0] }}
                 </th>
-                <th class="px-2 sm:px-3 py-2.5 font-medium text-slate-400 text-xs text-center uppercase tracking-wider">Avg</th>
+                <th class="px-2 sm:px-3 py-2.5 font-medium text-text-subdued text-xs text-center uppercase tracking-wider">Avg</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="track in tracks" :key="track.id" class="border-b border-white/5 last:border-0">
                 <td class="px-3 sm:px-4 py-2 max-w-[10rem] sm:max-w-xs">
-                  <span class="text-slate-500 text-xs mr-1.5">{{ track.track_number }}</span>
-                  <span class="text-slate-300 truncate inline-block max-w-full align-bottom">{{ track.name }}</span>
+                  <span class="text-text-subdued text-xs mr-1.5">{{ track.track_number }}</span>
+                  <span class="text-white/90 truncate inline-block max-w-full align-bottom">{{ track.name }}</span>
                 </td>
                 <td
                   v-for="rater in raters"
@@ -231,7 +231,7 @@ const hasAnyRatings = computed(() =>
               </tr>
               <!-- Album row -->
               <tr class="border-t border-white/10 bg-white/[0.03]">
-                <td class="px-3 sm:px-4 py-2.5 font-medium text-slate-300">
+                <td class="px-3 sm:px-4 py-2.5 font-medium text-white/90">
                   <span class="flex items-center gap-1.5"><Disc3 class="w-3.5 h-3.5 text-accent-primary" /> Album</span>
                 </td>
                 <td
@@ -253,7 +253,7 @@ const hasAnyRatings = computed(() =>
 
       <!-- Album rating comments -->
       <div v-if="albumRatingsWithScore.some(r => r.comment)" class="space-y-2">
-        <h3 class="text-sm font-medium text-slate-400">Album takes</h3>
+        <h3 class="text-sm font-medium text-text-subdued">Album takes</h3>
         <div
           v-for="r in albumRatingsWithScore.filter(r => r.comment)"
           :key="r.user_id"
@@ -263,8 +263,8 @@ const hasAnyRatings = computed(() =>
             <span class="font-medium text-sm">{{ r.user_name }}</span>
             <span class="font-heading font-bold" :class="getScoreColor(r.score)">{{ r.score.toFixed(1) }}</span>
           </div>
-          <div class="text-sm text-slate-400 flex items-start gap-2">
-            <MessageCircle class="w-4 h-4 mt-0.5 flex-shrink-0 text-slate-500" />
+          <div class="text-sm text-text-subdued flex items-start gap-2">
+            <MessageCircle class="w-4 h-4 mt-0.5 flex-shrink-0 text-text-subdued" />
             <span>{{ r.comment }}</span>
           </div>
         </div>

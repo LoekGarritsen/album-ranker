@@ -81,16 +81,16 @@ onUnmounted(() => clearTimeout(debounceTimer))
     <div ref="container" class="glass w-full max-w-2xl rounded-2xl overflow-hidden">
       <div class="p-4 border-b border-white/10 flex items-center gap-4">
         <Loader2 v-if="searching" class="w-5 h-5 text-accent-primary animate-spin" />
-        <Search v-else class="w-5 h-5 text-slate-400" />
+        <Search v-else class="w-5 h-5 text-text-subdued" />
         <input
           v-model="query"
           type="text"
           placeholder="Search Spotify for songs or albums…"
-          class="flex-1 bg-transparent text-white placeholder-slate-500 focus:outline-none"
+          class="flex-1 bg-transparent text-white placeholder-text-subdued focus:outline-none"
           autofocus
         />
         <button @click="emit('close')" class="btn-ghost" aria-label="Close">
-          <X class="w-5 h-5 text-slate-400" />
+          <X class="w-5 h-5 text-text-subdued" />
         </button>
       </div>
 
@@ -99,7 +99,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
 
         <!-- Idle: your favorites, one tap to play or queue -->
         <div v-else-if="showFavorites" class="p-2">
-          <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
+          <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-text-subdued uppercase tracking-wider">
             <Heart class="w-3.5 h-3.5" /> Your Favorites
           </div>
           <div
@@ -110,7 +110,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
             <img :src="f.image || '/placeholder.svg'" :alt="f.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <p class="truncate text-sm font-medium">{{ f.name }}</p>
-              <p class="truncate text-xs text-slate-400">{{ f.artist }}<span v-if="f.type === 'album'"> · Album</span></p>
+              <p class="truncate text-xs text-text-subdued">{{ f.artist }}<span v-if="f.type === 'album'"> · Album</span></p>
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
               <button
@@ -123,7 +123,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
               </button>
               <button
                 @click="emit('queue', f)"
-                class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
                 :aria-label="`Add ${f.name} to queue`"
                 title="Add to queue"
               >
@@ -131,7 +131,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
               </button>
               <button
                 @click="emit('select', f)"
-                class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
                 :aria-label="`Play ${f.name} now`"
                 title="Play now"
               >
@@ -141,15 +141,15 @@ onUnmounted(() => clearTimeout(debounceTimer))
           </div>
         </div>
 
-        <div v-else-if="!searched" class="p-10 text-center text-slate-500">
-          <Music class="w-10 h-10 mx-auto mb-3 text-slate-600" />
+        <div v-else-if="!searched" class="p-10 text-center text-text-subdued">
+          <Music class="w-10 h-10 mx-auto mb-3 text-white/40" />
           <p class="text-sm">Type to search the whole Spotify catalog</p>
         </div>
 
         <template v-else>
           <!-- Songs -->
           <div v-if="results.tracks.length" class="p-2">
-            <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-text-subdued uppercase tracking-wider">
               <Music class="w-3.5 h-3.5" /> Songs
             </div>
             <div
@@ -160,14 +160,14 @@ onUnmounted(() => clearTimeout(debounceTimer))
               <img :src="t.image || '/placeholder.svg'" :alt="t.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
               <div class="flex-1 min-w-0">
                 <p class="truncate text-sm font-medium">{{ t.name }}</p>
-                <p class="truncate text-xs text-slate-400">{{ t.artist }} · {{ t.album_name }}</p>
+                <p class="truncate text-xs text-text-subdued">{{ t.artist }} · {{ t.album_name }}</p>
               </div>
-              <span class="text-xs text-slate-500 tabular-nums flex-shrink-0">{{ formatDuration(t.duration_ms) }}</span>
+              <span class="text-xs text-text-subdued tabular-nums flex-shrink-0">{{ formatDuration(t.duration_ms) }}</span>
               <div class="flex items-center gap-1 flex-shrink-0">
                 <button
                   @click="toggleFavorite(withType('track', t))"
                   class="p-2 rounded-lg hover:bg-white/10 transition-colors"
-                  :class="isFavorite(t.spotify_id) ? 'text-pink-400' : 'text-slate-500 hover:text-pink-400'"
+                  :class="isFavorite(t.spotify_id) ? 'text-pink-400' : 'text-text-subdued hover:text-pink-400'"
                   :aria-label="isFavorite(t.spotify_id) ? `Remove ${t.name} from favorites` : `Add ${t.name} to favorites`"
                   :title="isFavorite(t.spotify_id) ? 'Remove favorite' : 'Favorite'"
                 >
@@ -175,7 +175,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
                 </button>
                 <button
                   @click="emit('queue', withType('track', t))"
-                  class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
                   :aria-label="`Add ${t.name} to queue`"
                   title="Add to queue"
                 >
@@ -183,7 +183,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
                 </button>
                 <button
                   @click="emit('select', withType('track', t))"
-                  class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
                   :aria-label="`Play ${t.name} now`"
                   title="Play now"
                 >
@@ -195,7 +195,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
 
           <!-- Albums -->
           <div v-if="results.albums.length" class="p-2 border-t border-white/5">
-            <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium text-text-subdued uppercase tracking-wider">
               <Disc3 class="w-3.5 h-3.5" /> Albums
             </div>
             <div
@@ -206,14 +206,14 @@ onUnmounted(() => clearTimeout(debounceTimer))
               <img :src="a.image || '/placeholder.svg'" :alt="a.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
               <div class="flex-1 min-w-0">
                 <p class="truncate text-sm font-medium">{{ a.name }}</p>
-                <p class="truncate text-xs text-slate-400">{{ a.artist }}</p>
+                <p class="truncate text-xs text-text-subdued">{{ a.artist }}</p>
               </div>
-              <span class="text-xs text-slate-500 flex-shrink-0">{{ a.total_tracks }} tracks</span>
+              <span class="text-xs text-text-subdued flex-shrink-0">{{ a.total_tracks }} tracks</span>
               <div class="flex items-center gap-1 flex-shrink-0">
                 <button
                   @click="toggleFavorite(withType('album', a))"
                   class="p-2 rounded-lg hover:bg-white/10 transition-colors"
-                  :class="isFavorite(a.spotify_id) ? 'text-pink-400' : 'text-slate-500 hover:text-pink-400'"
+                  :class="isFavorite(a.spotify_id) ? 'text-pink-400' : 'text-text-subdued hover:text-pink-400'"
                   :aria-label="isFavorite(a.spotify_id) ? `Remove ${a.name} from favorites` : `Add ${a.name} to favorites`"
                   :title="isFavorite(a.spotify_id) ? 'Remove favorite' : 'Favorite'"
                 >
@@ -221,7 +221,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
                 </button>
                 <button
                   @click="emit('queue', withType('album', a))"
-                  class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
                   :aria-label="`Add ${a.name} to queue`"
                   title="Add to queue"
                 >
@@ -229,7 +229,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
                 </button>
                 <button
                   @click="emit('select', withType('album', a))"
-                  class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
                   :aria-label="`Play ${a.name} now`"
                   title="Play now"
                 >
@@ -239,7 +239,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
             </div>
           </div>
 
-          <div v-if="!results.tracks.length && !results.albums.length" class="p-8 text-center text-slate-500 text-sm">
+          <div v-if="!results.tracks.length && !results.albums.length" class="p-8 text-center text-text-subdued text-sm">
             Nothing found for "{{ query }}"
           </div>
         </template>

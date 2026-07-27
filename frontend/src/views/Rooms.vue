@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject } from 'vue'
 import { useRouter } from 'vue-router'
-import { Radio, Users, Lock, Plus, X, Loader2, ChevronLeft, Trash2, MessageCircle } from 'lucide-vue-next'
+import { Radio, Users, Lock, Plus, X, Loader2, Trash2, MessageCircle } from 'lucide-vue-next'
 import ModalDialog from '../components/ModalDialog.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import { useSession } from '../composables/useSession'
@@ -217,11 +217,6 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <router-link to="/" class="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-6 py-2 min-h-[44px]">
-      <ChevronLeft class="w-4 h-4" />
-      Back to Albums
-    </router-link>
-
     <!-- Header -->
     <div class="flex items-center justify-between mb-6 sm:mb-8 flex-wrap gap-3">
       <div>
@@ -229,7 +224,7 @@ onUnmounted(() => {
           <Radio class="w-7 h-7 text-accent-primary" />
           Listening Rooms
         </h1>
-        <p class="text-slate-400 text-sm mt-1">Join a room to listen together in sync</p>
+        <p class="text-text-subdued text-sm mt-1">Join a room to listen together in sync</p>
       </div>
       <button
         @click="showCreateModal = true"
@@ -277,9 +272,9 @@ onUnmounted(() => {
 
     <!-- Empty state -->
     <div v-else-if="rooms.length === 0" class="text-center py-16">
-      <Radio class="w-16 h-16 mx-auto mb-4 text-slate-600" />
-      <h2 class="text-xl font-heading font-medium text-slate-400 mb-2">No active rooms</h2>
-      <p class="text-slate-500 mb-6">Create a room to start listening with others</p>
+      <Radio class="w-16 h-16 mx-auto mb-4 text-white/40" />
+      <h2 class="text-xl font-heading font-medium text-text-subdued mb-2">No active rooms</h2>
+      <p class="text-text-subdued mb-6">Create a room to start listening with others</p>
       <button
         @click="showCreateModal = true"
         class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
@@ -310,10 +305,10 @@ onUnmounted(() => {
             />
             <div v-else class="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center">
               <MessageCircle v-if="room.mode === 'hangout'" class="w-6 h-6 text-purple-400" />
-              <Radio v-else class="w-6 h-6 text-slate-500" />
+              <Radio v-else class="w-6 h-6 text-text-subdued" />
             </div>
-            <div v-if="room.has_password" class="absolute -top-1 -right-1 w-5 h-5 bg-slate-700 rounded-full flex items-center justify-center">
-              <Lock class="w-3 h-3 text-slate-300" />
+            <div v-if="room.has_password" class="absolute -top-1 -right-1 w-5 h-5 bg-surface-elevated rounded-full flex items-center justify-center">
+              <Lock class="w-3 h-3 text-white/90" />
             </div>
             <!-- Loading overlay when joining -->
             <div v-if="joining === room.code" class="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
@@ -331,13 +326,13 @@ onUnmounted(() => {
                 Hangout
               </span>
             </div>
-            <p v-if="room.album_name" class="text-sm text-slate-400 truncate">{{ room.album_name }}</p>
-            <p v-else-if="room.mode === 'hangout'" class="text-sm text-slate-500 italic">Chat room</p>
-            <p v-else class="text-sm text-slate-500 italic">No album selected</p>
-            <div class="flex items-center gap-2 mt-2 text-xs text-slate-500">
+            <p v-if="room.album_name" class="text-sm text-text-subdued truncate">{{ room.album_name }}</p>
+            <p v-else-if="room.mode === 'hangout'" class="text-sm text-text-subdued italic">Chat room</p>
+            <p v-else class="text-sm text-text-subdued italic">No album selected</p>
+            <div class="flex items-center gap-2 mt-2 text-xs text-text-subdued">
               <Users class="w-3 h-3" />
               <span>{{ room.participant_count }} {{ room.mode === 'hangout' ? 'hanging out' : 'listening' }}</span>
-              <span v-if="room.created_by_name" class="text-slate-600">· by {{ room.created_by_name }}</span>
+              <span v-if="room.created_by_name" class="text-white/40">· by {{ room.created_by_name }}</span>
             </div>
           </div>
 
@@ -345,7 +340,7 @@ onUnmounted(() => {
           <button
             v-if="isAdmin"
             @click="requestDeleteRoom(room, $event)"
-            class="p-2 text-slate-500 hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
+            class="p-2 text-text-subdued hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
             title="Delete room"
             aria-label="Delete room"
           >
@@ -360,13 +355,13 @@ onUnmounted(() => {
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-heading font-semibold">Create Room</h2>
           <button @click="closeCreateModal" class="p-1 hover:bg-white/10 rounded-lg" aria-label="Close">
-            <X class="w-5 h-5 text-slate-400" />
+            <X class="w-5 h-5 text-text-subdued" />
           </button>
         </div>
 
         <form @submit.prevent="createRoom" class="space-y-4">
           <div>
-            <label class="block text-sm text-slate-400 mb-2">Room Type</label>
+            <label class="block text-sm text-text-subdued mb-2">Room Type</label>
             <div class="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -374,11 +369,11 @@ onUnmounted(() => {
                 class="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors"
                 :class="createForm.mode === 'listening'
                   ? 'bg-accent-primary/15 border-accent-primary/60 text-accent-primary'
-                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
+                  : 'bg-white/5 border-white/10 text-text-subdued hover:bg-white/10'"
               >
                 <Radio class="w-5 h-5" />
                 <span class="text-sm font-medium">Listening</span>
-                <span class="text-[11px] leading-tight" :class="createForm.mode === 'listening' ? 'text-accent-primary/80' : 'text-slate-500'">
+                <span class="text-[11px] leading-tight" :class="createForm.mode === 'listening' ? 'text-accent-primary/80' : 'text-text-subdued'">
                   Rate an album in sync
                 </span>
               </button>
@@ -388,11 +383,11 @@ onUnmounted(() => {
                 class="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors"
                 :class="createForm.mode === 'hangout'
                   ? 'bg-purple-500/15 border-purple-400/60 text-purple-300'
-                  : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'"
+                  : 'bg-white/5 border-white/10 text-text-subdued hover:bg-white/10'"
               >
                 <MessageCircle class="w-5 h-5" />
                 <span class="text-sm font-medium">Hangout</span>
-                <span class="text-[11px] leading-tight" :class="createForm.mode === 'hangout' ? 'text-purple-300/80' : 'text-slate-500'">
+                <span class="text-[11px] leading-tight" :class="createForm.mode === 'hangout' ? 'text-purple-300/80' : 'text-text-subdued'">
                   Chat & vibe, music optional
                 </span>
               </button>
@@ -400,7 +395,7 @@ onUnmounted(() => {
           </div>
 
           <div>
-            <label class="block text-sm text-slate-400 mb-2">Room Name</label>
+            <label class="block text-sm text-text-subdued mb-2">Room Name</label>
             <input
               v-model="createForm.name"
               type="text"
@@ -419,11 +414,11 @@ onUnmounted(() => {
               />
               <span class="text-sm">Public room</span>
             </label>
-            <span class="text-xs text-slate-500">(visible in room list)</span>
+            <span class="text-xs text-text-subdued">(visible in room list)</span>
           </div>
 
           <div>
-            <label class="block text-sm text-slate-400 mb-2">Password (optional)</label>
+            <label class="block text-sm text-text-subdued mb-2">Password (optional)</label>
             <input
               v-model="createForm.password"
               type="password"
@@ -458,7 +453,7 @@ onUnmounted(() => {
           <Lock class="w-6 h-6 text-accent-primary" />
           <h2 class="text-xl font-heading font-semibold">Room Password</h2>
         </div>
-        <p class="text-sm text-slate-400 mb-4">
+        <p class="text-sm text-text-subdued mb-4">
           Enter the password for "{{ joiningRoom?.name }}"
         </p>
 

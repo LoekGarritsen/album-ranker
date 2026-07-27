@@ -33,7 +33,7 @@ function handleProgressClick(event) {
 }
 
 function getScoreColor(score) {
-  if (score == null) return 'text-slate-500'
+  if (score == null) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -43,7 +43,7 @@ function getScoreColor(score) {
 
 <template>
   <div v-if="track" class="glass p-4 sm:p-5 mb-4">
-    <div class="flex items-center gap-2 text-xs text-slate-500 uppercase tracking-wider mb-3">
+    <div class="flex items-center gap-2 text-xs text-text-subdued uppercase tracking-wider mb-3">
       <Music class="w-3.5 h-3.5" />
       Now Playing
     </div>
@@ -54,7 +54,7 @@ function getScoreColor(score) {
         <p class="font-heading font-semibold text-base sm:text-lg truncate" :class="{ 'text-accent-primary': isPlaying }">
           {{ track.track_number }}. {{ track.name }}
         </p>
-        <p class="text-xs text-slate-500 tabular-nums">
+        <p class="text-xs text-text-subdued tabular-nums">
           {{ formatDuration(position) }} / {{ formatDuration(duration) }}
         </p>
       </div>
@@ -69,7 +69,7 @@ function getScoreColor(score) {
           aria-label="Sync with room"
           title="Sync with room"
         >
-          <RefreshCw class="w-4 h-4 text-slate-400" />
+          <RefreshCw class="w-4 h-4 text-text-subdued" />
         </button>
         <button
           @click="emit('prev')"
@@ -112,14 +112,14 @@ function getScoreColor(score) {
     <!-- Inline quick rate -->
     <div>
       <div class="flex items-center justify-between mb-2">
-        <span class="text-sm text-slate-400">
+        <span class="text-sm text-text-subdued">
           Your rating:
           <span v-if="myScore != null" class="font-heading font-bold ml-1" :class="getScoreColor(myScore)">{{ myScore.toFixed(1) }}</span>
-          <span v-else class="text-slate-500 ml-1">tap to rate</span>
+          <span v-else class="text-text-subdued ml-1">tap to rate</span>
         </span>
         <button
           @click="emit('open-rating')"
-          class="flex items-center gap-1.5 px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-text-subdued hover:text-white hover:bg-white/10 rounded-lg transition-colors"
           aria-label="Fine-tune rating and add comment"
         >
           <SlidersHorizontal class="w-3.5 h-3.5" />
@@ -134,7 +134,7 @@ function getScoreColor(score) {
           class="py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors"
           :class="myScore != null && Math.round(myScore) === n
             ? 'bg-accent-primary text-black'
-            : 'bg-white/5 hover:bg-white/15 text-slate-300'"
+            : 'bg-white/5 hover:bg-white/15 text-white/90'"
           :aria-label="`Rate ${n}`"
         >
           {{ n }}

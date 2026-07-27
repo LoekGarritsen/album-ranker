@@ -46,21 +46,21 @@ onMounted(async () => {
   >
     <div ref="container" class="glass w-full max-w-2xl rounded-2xl overflow-hidden">
       <div class="p-4 border-b border-white/10 flex items-center gap-4">
-        <Search class="w-5 h-5 text-slate-400" />
+        <Search class="w-5 h-5 text-text-subdued" />
         <input
           v-model="search"
           type="text"
           placeholder="Search albums..."
-          class="flex-1 bg-transparent text-white placeholder-slate-500 focus:outline-none"
+          class="flex-1 bg-transparent text-white placeholder-text-subdued focus:outline-none"
           autofocus
         />
         <button @click="emit('close')" class="btn-ghost" aria-label="Close">
-          <X class="w-5 h-5 text-slate-400" />
+          <X class="w-5 h-5 text-text-subdued" />
         </button>
       </div>
 
       <div class="max-h-96 overflow-y-auto">
-        <div v-if="loading" class="p-8 text-center text-slate-400">
+        <div v-if="loading" class="p-8 text-center text-text-subdued">
           Loading albums...
         </div>
 
@@ -79,8 +79,8 @@ onMounted(async () => {
             />
             <div class="flex-1 min-w-0">
               <h3 class="font-heading font-medium truncate">{{ a.name }}</h3>
-              <p class="text-sm text-slate-400 truncate">{{ a.artist }}</p>
-              <p class="text-xs text-slate-500">{{ a.tracks?.length || 0 }} tracks</p>
+              <p class="text-sm text-text-subdued truncate">{{ a.artist }}</p>
+              <p class="text-xs text-text-subdued">{{ a.tracks?.length || 0 }} tracks</p>
             </div>
             <div v-if="currentAlbumId === a.id" class="px-3 py-1 bg-accent-primary/20 text-accent-primary rounded-lg text-sm flex-shrink-0">
               Current
@@ -88,7 +88,7 @@ onMounted(async () => {
           </button>
         </div>
 
-        <div v-else class="p-8 text-center text-slate-500">
+        <div v-else class="p-8 text-center text-text-subdued">
           No albums found
         </div>
       </div>

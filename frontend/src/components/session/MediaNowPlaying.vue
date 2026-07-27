@@ -46,9 +46,9 @@ function handleProgressClick(event) {
   <div class="glass overflow-hidden">
     <!-- Empty: nothing on yet -->
     <div v-if="!media" class="p-6 text-center">
-      <Music class="w-10 h-10 mx-auto mb-3 text-slate-600" />
-      <p class="text-slate-400 font-medium mb-1">Nothing playing</p>
-      <p class="text-sm text-slate-500 mb-4">Put on a song or album for the room</p>
+      <Music class="w-10 h-10 mx-auto mb-3 text-white/40" />
+      <p class="text-text-subdued font-medium mb-1">Nothing playing</p>
+      <p class="text-sm text-text-subdued mb-4">Put on a song or album for the room</p>
       <div class="flex items-center justify-center gap-2">
         <button
           @click="emit('search')"
@@ -60,7 +60,7 @@ function handleProgressClick(event) {
         <button
           @click="emit('sync')"
           :disabled="isSyncing"
-          class="p-2.5 rounded-xl hover:bg-white/10 transition-colors text-slate-400"
+          class="p-2.5 rounded-xl hover:bg-white/10 transition-colors text-text-subdued"
           :class="{ 'animate-spin': isSyncing }"
           aria-label="Refresh room state"
           title="Refresh room state"
@@ -75,7 +75,7 @@ function handleProgressClick(event) {
       <div class="relative aspect-square w-full bg-white/5">
         <img v-if="media.image" :src="media.image" :alt="media.name" class="w-full h-full object-cover" />
         <div v-else class="w-full h-full flex items-center justify-center">
-          <Disc3 class="w-16 h-16 text-slate-600" />
+          <Disc3 class="w-16 h-16 text-white/40" />
         </div>
         <span class="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur text-xs font-medium">
           <component :is="isTrack ? Music : Disc3" class="w-3 h-3" />
@@ -89,8 +89,8 @@ function handleProgressClick(event) {
             <p class="font-heading font-semibold truncate" :class="{ 'text-accent-primary': isPlaying }">
               {{ media.name }}
             </p>
-            <p class="text-sm text-slate-400 truncate">{{ media.artist }}</p>
-            <p v-if="!isTrack && liveTrackName" class="text-xs text-slate-500 truncate mt-0.5">
+            <p class="text-sm text-text-subdued truncate">{{ media.artist }}</p>
+            <p v-if="!isTrack && liveTrackName" class="text-xs text-text-subdued truncate mt-0.5">
               ♪ {{ liveTrackName }}
             </p>
           </div>
@@ -98,7 +98,7 @@ function handleProgressClick(event) {
             v-if="showSync"
             @click="emit('sync')"
             :disabled="isSyncing"
-            class="p-2.5 rounded-full hover:bg-white/10 transition-colors flex-shrink-0 text-slate-400"
+            class="p-2.5 rounded-full hover:bg-white/10 transition-colors flex-shrink-0 text-text-subdued"
             :class="{ 'animate-spin': isSyncing }"
             aria-label="Sync with room"
             title="Sync with room"
@@ -108,7 +108,7 @@ function handleProgressClick(event) {
           <button
             @click="emit('favorite')"
             class="p-2.5 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
-            :class="isFavorite ? 'text-pink-400' : 'text-slate-400 hover:text-pink-400'"
+            :class="isFavorite ? 'text-pink-400' : 'text-text-subdued hover:text-pink-400'"
             :aria-label="isFavorite ? 'Remove from favorites' : 'Add to favorites'"
             :aria-pressed="isFavorite"
           >
@@ -129,7 +129,7 @@ function handleProgressClick(event) {
           <button
             @click="emit('vote', 'up')"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors min-h-[36px]"
-            :class="myVote === 1 ? 'bg-green-400/15 text-green-400' : 'bg-white/5 text-slate-400 hover:text-green-400 hover:bg-white/10'"
+            :class="myVote === 1 ? 'bg-green-400/15 text-green-400' : 'bg-white/5 text-text-subdued hover:text-green-400 hover:bg-white/10'"
             aria-label="Like this song"
             :aria-pressed="myVote === 1"
           >
@@ -139,7 +139,7 @@ function handleProgressClick(event) {
           <button
             @click="emit('vote', 'down')"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors min-h-[36px]"
-            :class="myVote === -1 ? 'bg-red-400/15 text-red-400' : 'bg-white/5 text-slate-400 hover:text-red-400 hover:bg-white/10'"
+            :class="myVote === -1 ? 'bg-red-400/15 text-red-400' : 'bg-white/5 text-text-subdued hover:text-red-400 hover:bg-white/10'"
             aria-label="Dislike this song"
             :aria-pressed="myVote === -1"
             title="Majority dislikes skip the song"
@@ -162,12 +162,12 @@ function handleProgressClick(event) {
           >
             <div class="h-full bg-accent-primary rounded-full transition-all duration-100" :style="{ width: progressPercent + '%' }"></div>
           </div>
-          <div class="flex justify-between text-xs text-slate-500 tabular-nums mt-1.5">
+          <div class="flex justify-between text-xs text-text-subdued tabular-nums mt-1.5">
             <span>{{ formatDuration(position) }}</span>
             <span>{{ formatDuration(duration) }}</span>
           </div>
         </template>
-        <p v-else class="text-xs text-slate-500">Full album — Spotify plays it through</p>
+        <p v-else class="text-xs text-text-subdued">Full album — Spotify plays it through</p>
       </div>
     </template>
   </div>

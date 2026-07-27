@@ -57,7 +57,7 @@ function getUserScore(track) {
 }
 
 function getScoreColor(score) {
-  if (score == null) return 'text-slate-500'
+  if (score == null) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -76,8 +76,8 @@ function formatDuration(ms) {
   <div class="glass overflow-hidden">
     <template v-for="item in groupedTracks" :key="item.type === 'disc' ? `disc-${item.disc_number}` : item.track.id">
       <div v-if="item.type === 'disc' && albumIsMultiDisc" class="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5">
-        <Disc3 class="w-3.5 h-3.5 text-slate-400" />
-        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Disc {{ item.disc_number }}</span>
+        <Disc3 class="w-3.5 h-3.5 text-text-subdued" />
+        <span class="text-xs font-medium text-text-subdued uppercase tracking-wider">Disc {{ item.disc_number }}</span>
       </div>
       <div
         v-else-if="item.type === 'track'"
@@ -102,17 +102,17 @@ function formatDuration(ms) {
             v-else-if="currentTrackId === item.track.id"
             class="w-4 h-4 text-accent-primary mx-auto"
           />
-          <span v-else class="text-xs sm:text-sm text-slate-500">{{ item.track.track_number }}</span>
+          <span v-else class="text-xs sm:text-sm text-text-subdued">{{ item.track.track_number }}</span>
         </div>
         <div class="flex-1 min-w-0">
           <p class="truncate text-sm sm:text-base" :class="currentTrackId === item.track.id ? 'text-accent-primary font-medium' : ''">
             {{ item.track.name }}
           </p>
-          <p class="text-xs text-slate-500">{{ formatDuration(item.track.duration_ms) }}</p>
+          <p class="text-xs text-text-subdued">{{ formatDuration(item.track.duration_ms) }}</p>
         </div>
         <!-- Mobile: group average -->
         <div v-if="getTrackAvg(item.track) != null" class="sm:hidden text-center flex-shrink-0">
-          <div class="text-[10px] text-slate-500">avg</div>
+          <div class="text-[10px] text-text-subdued">avg</div>
           <div class="font-heading font-bold text-sm" :class="getScoreColor(getTrackAvg(item.track))">
             {{ getTrackAvg(item.track).toFixed(1) }}
           </div>
@@ -120,7 +120,7 @@ function formatDuration(ms) {
         <!-- Desktop: per-rater scores -->
         <div class="hidden sm:flex items-center gap-3">
           <div v-for="ranking in visibleRankings(item.track)" :key="ranking.user_id" class="text-center">
-            <div class="text-xs text-slate-500">{{ ranking.user_name?.split(' ')[0] }}</div>
+            <div class="text-xs text-text-subdued">{{ ranking.user_name?.split(' ')[0] }}</div>
             <div class="font-heading font-bold" :class="getScoreColor(ranking.score)">
               {{ ranking.score?.toFixed(1) || '-' }}
             </div>
@@ -132,7 +132,7 @@ function formatDuration(ms) {
           title="Track info"
           aria-label="Track info"
         >
-          <Info class="w-4 h-4 text-slate-400" />
+          <Info class="w-4 h-4 text-text-subdued" />
         </button>
         <button
           @click.stop="emit('rate', item.track)"

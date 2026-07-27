@@ -71,7 +71,7 @@ watch(selectedUserId, loadTierList)
       </select>
     </div>
 
-    <div v-if="loading" class="text-center py-12 text-slate-400">
+    <div v-if="loading" class="text-center py-12 text-text-subdued">
       Loading tier list...
     </div>
 
@@ -109,13 +109,13 @@ watch(selectedUserId, loadTierList)
               <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 hidden sm:block">
                 <div class="bg-bg-primary border border-white/20 rounded-lg p-2 text-xs whitespace-nowrap shadow-xl">
                   <p class="font-medium">{{ album.name }}</p>
-                  <p class="text-slate-400">{{ album.artist }}</p>
+                  <p class="text-text-subdued">{{ album.artist }}</p>
                   <p v-if="album.score" class="text-accent-primary mt-1">{{ album.score }}</p>
                 </div>
               </div>
             </div>
           </div>
-          <div v-else class="h-full flex items-center justify-center text-slate-500 text-xs sm:text-sm">
+          <div v-else class="h-full flex items-center justify-center text-text-subdued text-xs sm:text-sm">
             No albums
           </div>
         </div>

@@ -27,11 +27,11 @@ function getRankBadge(index) {
   if (index === 0) return { icon: '1', class: 'bg-yellow-500 text-black' }
   if (index === 1) return { icon: '2', class: 'bg-slate-400 text-black' }
   if (index === 2) return { icon: '3', class: 'bg-amber-600 text-black' }
-  return { icon: `${index + 1}`, class: 'bg-white/10 text-slate-400' }
+  return { icon: `${index + 1}`, class: 'bg-white/10 text-text-subdued' }
 }
 
 function getScoreColor(score) {
-  if (!score) return 'text-slate-500'
+  if (!score) return 'text-text-subdued'
   if (score >= 8) return 'text-green-400'
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
@@ -55,15 +55,15 @@ onMounted(loadResults)
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" class="text-center py-12 text-slate-400">
+    <div v-if="loading" class="text-center py-12 text-text-subdued">
       Loading results...
     </div>
 
     <!-- Empty state -->
     <div v-else-if="results.length === 0" class="text-center py-16">
-      <Trophy class="w-16 h-16 mx-auto mb-4 text-slate-600" />
-      <h2 class="text-xl font-heading font-medium text-slate-400 mb-2">No rankings yet</h2>
-      <p class="text-slate-500">Add albums and start rating!</p>
+      <Trophy class="w-16 h-16 mx-auto mb-4 text-white/40" />
+      <h2 class="text-xl font-heading font-medium text-text-subdued mb-2">No rankings yet</h2>
+      <p class="text-text-subdued">Add albums and start rating!</p>
     </div>
 
     <!-- Results list -->
@@ -96,13 +96,13 @@ onMounted(loadResults)
           <!-- Album info -->
           <div class="flex-1 min-w-0">
             <h3 class="font-heading font-semibold truncate text-sm sm:text-base">{{ item.album.name }}</h3>
-            <p class="text-xs sm:text-sm text-slate-400 truncate">{{ item.album.artist }}</p>
+            <p class="text-xs sm:text-sm text-text-subdued truncate">{{ item.album.artist }}</p>
           </div>
 
           <!-- Scores -->
           <div class="flex items-center gap-3 sm:gap-6">
             <div class="text-center">
-              <div class="hidden sm:flex items-center gap-1 text-xs text-slate-500 mb-1">
+              <div class="hidden sm:flex items-center gap-1 text-xs text-text-subdued mb-1">
                 <Disc3 class="w-3 h-3" />
                 Album
               </div>
@@ -113,11 +113,11 @@ onMounted(loadResults)
               >
                 {{ item.average_album_score }}
               </div>
-              <div v-else class="text-base sm:text-lg text-slate-500">-</div>
+              <div v-else class="text-base sm:text-lg text-text-subdued">-</div>
             </div>
 
             <div class="text-center hidden sm:block">
-              <div class="flex items-center gap-1 text-xs text-slate-500 mb-1">
+              <div class="flex items-center gap-1 text-xs text-text-subdued mb-1">
                 <Music class="w-3 h-3" />
                 Tracks
               </div>
@@ -128,13 +128,13 @@ onMounted(loadResults)
               >
                 {{ item.average_track_score }}
               </div>
-              <div v-else class="text-lg text-slate-500">-</div>
+              <div v-else class="text-lg text-text-subdued">-</div>
             </div>
           </div>
 
           <!-- Expand icon -->
           <ChevronDown
-            class="w-5 h-5 text-slate-400 transition-transform flex-shrink-0"
+            class="w-5 h-5 text-text-subdued transition-transform flex-shrink-0"
             :class="{ 'rotate-180': expandedId === item.album.id }"
           />
         </div>
@@ -143,7 +143,7 @@ onMounted(loadResults)
         <div v-if="expandedId === item.album.id" class="border-t border-white/10 bg-white/5">
           <!-- Album ratings -->
           <div v-if="item.album_rankings?.length > 0" class="p-4 border-b border-white/10">
-            <h4 class="text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
+            <h4 class="text-sm font-medium text-text-subdued mb-3 flex items-center gap-2">
               <Disc3 class="w-4 h-4" />
               Album Ratings
             </h4>
@@ -154,7 +154,7 @@ onMounted(loadResults)
                 class="flex items-start gap-3"
               >
                 <div class="w-24 flex-shrink-0">
-                  <span class="text-sm text-slate-300">{{ ranking.user_name }}</span>
+                  <span class="text-sm text-white/90">{{ ranking.user_name }}</span>
                 </div>
                 <div
                   class="w-10 text-center font-heading font-bold"
@@ -162,7 +162,7 @@ onMounted(loadResults)
                 >
                   {{ ranking.score }}
                 </div>
-                <div v-if="ranking.comment" class="flex-1 text-sm text-slate-400">
+                <div v-if="ranking.comment" class="flex-1 text-sm text-text-subdued">
                   <MessageCircle class="w-3 h-3 inline mr-1 opacity-50" />
                   {{ ranking.comment }}
                 </div>
@@ -172,7 +172,7 @@ onMounted(loadResults)
 
           <!-- Track ratings -->
           <div v-if="item.tracks?.length > 0" class="p-4">
-            <h4 class="text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
+            <h4 class="text-sm font-medium text-text-subdued mb-3 flex items-center gap-2">
               <Music class="w-4 h-4" />
               Track Ratings
             </h4>
@@ -184,7 +184,7 @@ onMounted(loadResults)
               >
                 <div class="flex items-center justify-between mb-2">
                   <div class="flex items-center gap-2">
-                    <span class="text-slate-500 text-sm w-6">{{ track.track_number }}.</span>
+                    <span class="text-text-subdued text-sm w-6">{{ track.track_number }}.</span>
                     <span class="font-medium">{{ track.name }}</span>
                   </div>
                   <div
@@ -201,11 +201,11 @@ onMounted(loadResults)
                     :key="ranking.user_name"
                     class="flex items-start gap-2 text-sm"
                   >
-                    <span class="text-slate-500 w-20">{{ ranking.user_name }}</span>
+                    <span class="text-text-subdued w-20">{{ ranking.user_name }}</span>
                     <span class="font-heading font-bold w-6" :class="getScoreColor(ranking.score)">
                       {{ ranking.score }}
                     </span>
-                    <span v-if="ranking.comment" class="text-slate-500 flex-1">
+                    <span v-if="ranking.comment" class="text-text-subdued flex-1">
                       {{ ranking.comment }}
                     </span>
                   </div>
