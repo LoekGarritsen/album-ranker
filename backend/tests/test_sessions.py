@@ -374,3 +374,32 @@ class TestSwitchMode:
     def test_unknown_session_404(self, client, admin_headers):
         res = client.post("/api/sessions/NOPE99/mode", params={"mode": "hangout"}, headers=admin_headers)
         assert res.status_code == 404
+
+    def test_switch_pauses_playback(self, client, admin_headers):
+        """Each mode has its own clock authority — switching pauses the room
+        but keeps the position, so switching back resumes in place."""
+        code = self._create(client, admin_headers, album_id=1)
+        client.post(f"/api/sessions/{code}/track", params={"track_id": 1, "play": "true"}, headers=admin_headers)
+        assert client.get(f"/api/sessions/{code}").json()["playback"]["is_playing"] is True
+
+        res = client.post(f"/api/sessions/{code}/mode", params={"mode": "hangout"}, headers=admin_headers)
+        assert res.status_code == 200
+        data = client.get(f"/api/sessions/{code}").json()
+        assert data["playback"]["is_playing"] is False
+        assert data["current_track_id"] == 1  # nothing lost, just paused
+
+    def test_set_media_rejected_in_listening_mode(self, client, admin_headers):
+        code = self._create(client, admin_headers)
+        media = {"type": "track", "spotify_id": "sp_x", "name": "Song",
+                 "artist": "A", "image": None, "duration_ms": 1000}
+        res = client.post(f"/api/sessions/{code}/media", json=media, headers=admin_headers)
+        assert res.status_code == 409
+
+    def test_set_media_allowed_after_switch_to_hangout(self, client, admin_headers):
+        code = self._create(client, admin_headers)
+        client.post(f"/api/sessions/{code}/mode", params={"mode": "hangout"}, headers=admin_headers)
+        media = {"type": "track", "spotify_id": "sp_x", "name": "Song",
+                 "artist": "A", "image": None, "duration_ms": 1000}
+        res = client.post(f"/api/sessions/{code}/media", json=media, headers=admin_headers)
+        assert res.status_code == 200
+        assert client.get(f"/api/sessions/{code}").json()["media"]["name"] == "Song"

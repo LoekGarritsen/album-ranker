@@ -18,6 +18,7 @@ const {
   playbackPosition,
   currentTrackDuration,
   hasAlbum,
+  isHangout,
   togglePlayback,
   skipPrevious,
   skipNext,
@@ -26,11 +27,18 @@ const {
   syncWithServer
 } = useSession()
 
-// Hangout media has no album tracklist — no skip buttons, name from media
-const showSkip = computed(() => hasAlbum.value)
-const displayTitle = computed(() => currentTrack.value?.name || media.value?.name || 'No track')
-const displaySubtitle = computed(() => (album.value?.artist || media.value?.artist || '') )
-const displayImage = computed(() => album.value?.cover_url || media.value?.image || '/placeholder.svg')
+// Hangout shows the room's media, never a ranking album retained from a
+// mode switch — its skip buttons would hijack the room into album playback.
+const showSkip = computed(() => hasAlbum.value && !isHangout.value)
+const displayTitle = computed(() => (isHangout.value
+  ? media.value?.name
+  : currentTrack.value?.name || media.value?.name) || 'No track')
+const displaySubtitle = computed(() => (isHangout.value
+  ? media.value?.artist
+  : album.value?.artist || media.value?.artist) || '')
+const displayImage = computed(() => (isHangout.value
+  ? media.value?.image
+  : album.value?.cover_url || media.value?.image) || '/placeholder.svg')
 
 const isSyncing = ref(false)
 
@@ -72,7 +80,7 @@ async function handleSync() {
 
 <template>
   <div
-    v-if="session && (hasAlbum || media) && !isOnSessionPage"
+    v-if="session && (isHangout ? !!media : (hasAlbum || !!media)) && !isOnSessionPage"
     class="fixed bottom-0 left-0 right-0 z-40 bg-bg-secondary/95 backdrop-blur-xl border-t border-white/10 safe-area-bottom"
   >
     <!-- Progress bar at top -->

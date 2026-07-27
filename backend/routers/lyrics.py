@@ -2,9 +2,10 @@
 Lyrics routes — synced lyrics from LRCLIB with a local SQLite cache.
 """
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from database import get_connection
+from ratelimit import limiter
 
 router = APIRouter(prefix="/api/lyrics", tags=["lyrics"])
 
@@ -14,6 +15,10 @@ USER_AGENT = "AlbumRanker/1.0 (https://albums.garritsen.dev)"
 
 # Search fallback accepts a match whose duration is within this window
 DURATION_TOLERANCE_S = 10
+
+# A cached miss retries after this long — lyrics get added to LRCLIB over
+# time, so "not found" must not be permanent.
+NEGATIVE_CACHE_DAYS = 14
 
 
 async def fetch_from_lrclib(track_name: str, artist_name: str, album_name: str, duration_s: int):
@@ -49,7 +54,9 @@ async def fetch_from_lrclib(track_name: str, artist_name: str, album_name: str, 
 
 
 @router.get("")
+@limiter.limit("30/minute")
 async def get_lyrics(
+    request: Request,
     spotify_track_id: str = Query(..., min_length=1),
     track_name: str = Query(..., min_length=1),
     artist_name: str = Query(..., min_length=1),
@@ -59,7 +66,8 @@ async def get_lyrics(
     """Lyrics for a track, cached by Spotify track id (negative results cached too)."""
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM lyrics_cache WHERE spotify_track_id = ?",
+            f"""SELECT * FROM lyrics_cache WHERE spotify_track_id = ?
+                AND (found = 1 OR fetched_at > datetime('now', '-{NEGATIVE_CACHE_DAYS} days'))""",
             (spotify_track_id,),
         ).fetchone()
     if row:

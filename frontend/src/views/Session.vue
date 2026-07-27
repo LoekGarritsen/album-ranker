@@ -104,10 +104,10 @@ const mainTab = ref('tracks')
 
 const sessionCode = computed(() => route.params.code)
 
-// Spotify connected + album has a Spotify context: Spotify plays the album
-// gaplessly and advances tracks itself; the app observes advances
-// (spotifyCurrentTrack watcher) instead of driving each track end.
-const spotifyContextMode = computed(() => spotifyReady.value && !!album.value?.spotify_id)
+// Spotify plays the album gaplessly and advances itself; the app observes
+// (spotifyCurrentTrack watcher) instead of driving track ends. Listening only:
+// a retained album in hangout must not arm the watcher (pauses hangout songs).
+const spotifyContextMode = computed(() => !isHangout.value && spotifyReady.value && !!album.value?.spotify_id)
 
 const myAlbumRanking = computed(() =>
   album.value?.album_rankings?.find(r => r.user_id === currentUser.value?.id && r.score != null) || null

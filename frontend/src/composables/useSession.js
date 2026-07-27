@@ -227,7 +227,8 @@ export function useSession() {
           const payload = { type: 'ping' }
           // Hangout: our Spotify is the clock — report which track (within an
           // album context) and where, so the server clock survives rejoins.
-          if (media.value && spotifyReady.value && !spotifyPaused.value && spotifyPlayerTrack.value) {
+          // Hangout mode only: media lingers after a switch to listening.
+          if (isHangout.value && media.value && spotifyReady.value && !spotifyPaused.value && spotifyPlayerTrack.value) {
             const t = spotifyPlayerTrack.value
             payload.progress = {
               media_seq: mediaSeq,
@@ -274,16 +275,26 @@ export function useSession() {
 
         if (session.value) {
           session.value.current_track_id = data.track_id
+          // Mode/album may have switched while disconnected — the broadcast
+          // was missed, so the sync snapshot is the catch-up.
+          if (data.mode !== undefined) {
+            session.value.mode = data.mode
+          }
+          if (data.album_id !== undefined && data.album_id !== session.value.album_id) {
+            session.value.album_id = data.album_id
+            loadAlbumData(data.album_id)
+          }
         }
         // Track may have changed while disconnected — refresh duration too,
-        // or the local timer runs against the old track's length.
+        // or the local timer runs against the old track's length. Hangout:
+        // media owns the clock, a retained ranking track must not win.
         const syncTrack = album.value?.tracks?.find(t => t.id === data.track_id)
-        if (syncTrack) {
+        if (syncTrack && !isHangout.value) {
           currentTrackDuration.value = syncTrack.duration_ms
         }
         if (data.media !== undefined) {
           media.value = data.media
-          if (!syncTrack && data.media) {
+          if (isHangout.value && data.media) {
             // Album media has no single duration — progress bar hides at 0.
             currentTrackDuration.value = data.media.type === 'track' ? data.media.duration_ms : 0
           }
@@ -343,7 +354,9 @@ export function useSession() {
       case 'playback': {
         stopProgressInterval()
         playbackPosition.value = data.position || 0
-        const track = currentTrack.value
+        // Hangout: the retained ranking track must never drive audio —
+        // only the room's media may (and vice versa in listening mode).
+        const track = isHangout.value ? null : currentTrack.value
 
         if (data.action === 'play') {
           isPlaying.value = true
@@ -356,7 +369,7 @@ export function useSession() {
             } else {
               playTrackOnSpotify(track, data.position || 0)
             }
-          } else if (spotifyReady.value && media.value?.spotify_id) {
+          } else if (isHangout.value && spotifyReady.value && media.value?.spotify_id) {
             // Hangout media. Album context position is per-track, so resume in
             // place when anything is loaded; cold-start (empty player, e.g.
             // fresh page load) at the server-reported track + position.
@@ -394,7 +407,7 @@ export function useSession() {
         // In context mode Spotify's clock is mirrored into the room locally;
         // a server correction here would fight it and make the bar jump.
         // Same for hangout while our Spotify is audibly playing — we ARE the clock.
-        const inContextMode = (spotifyReady.value && !!album.value?.spotify_id) ||
+        const inContextMode = (!isHangout.value && spotifyReady.value && !!album.value?.spotify_id) ||
           (media.value && spotifyReady.value && !spotifyPaused.value)
         if (!inContextMode && data.position !== undefined) {
           const drift = Math.abs(playbackPosition.value - data.position)
@@ -407,7 +420,7 @@ export function useSession() {
         // bring Spotify along so audio matches the recovered room state.
         if (data.is_playing !== undefined && data.is_playing !== isPlaying.value) {
           isPlaying.value = data.is_playing
-          const track = currentTrack.value
+          const track = isHangout.value ? null : currentTrack.value
           if (isPlaying.value) {
             if (spotifyReady.value && track?.spotify_id) {
               if (spotifyHasTrack(track)) {
@@ -415,7 +428,7 @@ export function useSession() {
               } else {
                 playTrackOnSpotify(track, playbackPosition.value)
               }
-            } else if (spotifyReady.value && media.value?.spotify_id) {
+            } else if (isHangout.value && spotifyReady.value && media.value?.spotify_id) {
               if (spotifyPaused.value && spotifyPlayerTrack.value) spotifyResume()
               else if (!spotifyPlayerTrack.value) {
                 playMediaOnSpotify(media.value, playbackPosition.value,
@@ -628,6 +641,15 @@ export function useSession() {
         break
       }
 
+      case 'error':
+        showToast(data.message || 'Room error', 'error')
+        // Access rejected (password room, not a member): drop the session so
+        // the reconnect loop stops hammering a socket that always closes.
+        if (data.message === 'Join the room first') {
+          leaveSession()
+        }
+        break
+
       case 'session_ended':
         // Room was closed/deleted
         showToast(data.message || 'This room has been closed', 'error')
@@ -798,7 +820,9 @@ export function useSession() {
       const albumRes = await fetch(`/api/albums/${albumId}`)
       if (albumRes.ok) {
         album.value = await albumRes.json()
-        if (currentTrack.value) {
+        // Hangout: media owns the clock — the retained ranking track's
+        // duration must not clobber it when the album loads.
+        if (currentTrack.value && !isHangout.value) {
           currentTrackDuration.value = currentTrack.value.duration_ms
         }
       }
@@ -809,6 +833,15 @@ export function useSession() {
 
   async function joinSession(code, currentUser) {
     try {
+      // Switching rooms without leaving: the old room's chat/queue must not
+      // bleed into the new one (chat ids are a global sequence — a stale
+      // last-id makes catch-up skip the new room's history).
+      if (session.value?.code && session.value.code !== code) {
+        resetChatState()
+        queue.value = []
+        mediaVotes.value = { likes: 0, dislikes: 0, voters: [] }
+      }
+
       const res = await fetch(`/api/sessions/${code}`)
       if (!res.ok) return false
 
@@ -816,8 +849,12 @@ export function useSession() {
       sessionUser.value = currentUser // Store for auto-advance
       media.value = session.value.media || null
       mediaTrack.value = session.value.media_track || null
-      currentTrackDuration.value = session.value.current_track_duration
-        || (media.value?.type === 'track' ? media.value.duration_ms : 0)
+      mediaSeq = session.value.media_seq || 0
+      mediaVotes.value = session.value.media_votes || { likes: 0, dislikes: 0, voters: [] }
+      queue.value = session.value.queue || []
+      currentTrackDuration.value = (isHangout.value
+        ? (media.value?.type === 'track' ? media.value.duration_ms : 0)
+        : session.value.current_track_duration)
         || 0
       isPlaying.value = session.value.playback?.is_playing || false
       playbackPosition.value = session.value.playback?.position || 0
@@ -882,7 +919,8 @@ export function useSession() {
           name: item.name,
           artist: item.artist || '',
           image: item.image || null,
-          duration_ms: item.duration_ms || 0
+          duration_ms: item.duration_ms || 0,
+          album_name: item.album_name || null
         })
       })
       return res.ok
@@ -906,7 +944,8 @@ export function useSession() {
           name: item.name,
           artist: item.artist || '',
           image: item.image || null,
-          duration_ms: item.duration_ms || 0
+          duration_ms: item.duration_ms || 0,
+          album_name: item.album_name || null
         })
       })
       if (!res.ok) return false
@@ -1177,6 +1216,16 @@ export function useSession() {
 
       const data = await res.json()
 
+      // Manual sync doubles as a full catch-up: mode or album may have
+      // switched while this client missed the broadcast.
+      if (session.value && data.mode !== undefined) {
+        session.value.mode = data.mode
+      }
+      if (session.value && data.album_id !== undefined && data.album_id !== session.value.album_id) {
+        session.value.album_id = data.album_id
+        loadAlbumData(data.album_id)
+      }
+
       // Update local state with server state
       if (data.playback) {
         const serverPos = data.playback.position || 0
@@ -1187,11 +1236,12 @@ export function useSession() {
         isPlaying.value = serverIsPlaying
       }
 
-      // Update track if different
+      // Update track if different (duration only in listening mode — in
+      // hangout the media clock owns it)
       if (data.current_track_id && data.current_track_id !== session.value.current_track_id) {
         session.value.current_track_id = data.current_track_id
         const track = album.value?.tracks?.find(t => t.id === data.current_track_id)
-        if (track) {
+        if (track && !isHangout.value) {
           currentTrackDuration.value = track.duration_ms
         }
       }
@@ -1199,16 +1249,22 @@ export function useSession() {
       // Refresh hangout media + shared queue too
       if (data.media !== undefined) {
         media.value = data.media
-        if (!currentTrack.value && data.media) {
+        if (isHangout.value && data.media) {
           currentTrackDuration.value = data.media.type === 'track' ? data.media.duration_ms : 0
         }
       }
       if (data.media_track !== undefined) mediaTrack.value = data.media_track
+      // Stale seq means every advance/track-end report we send is no-oped —
+      // the manual sync is the escape hatch, so refresh it here.
+      if (data.media_seq !== undefined) mediaSeq = data.media_seq
+      if (data.media_votes !== undefined) {
+        mediaVotes.value = data.media_votes || { likes: 0, dislikes: 0, voters: [] }
+      }
       if (data.queue !== undefined) queue.value = data.queue || []
 
       // Sync Spotify player if connected
       if (spotifyReady.value) {
-        const track = currentTrack.value
+        const track = isHangout.value ? null : currentTrack.value
         if (track?.spotify_id) {
           if (isPlaying.value) {
             await playTrackOnSpotify(track, playbackPosition.value)
@@ -1219,7 +1275,7 @@ export function useSession() {
               await spotifySeek(playbackPosition.value)
             }
           }
-        } else if (media.value?.spotify_id) {
+        } else if (isHangout.value && media.value?.spotify_id) {
           // Album context already loaded and audible — restarting would yank
           // everyone back, so leave Spotify's clock alone.
           const albumAlreadyOn = media.value.type === 'album' &&

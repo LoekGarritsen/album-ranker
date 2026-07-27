@@ -68,11 +68,24 @@ def user_is_connected(state: dict, user_key) -> bool:
     return any(e["user_key"] == user_key for e in state["connections"].values())
 
 
+def _is_room_member(conn, session_id: int, user: Optional[dict]) -> bool:
+    """Membership = joined via /join (where the password is checked) or admin.
+    Gates chat/queue/WS on password rooms; open rooms never call this."""
+    if not user:
+        return False
+    if user.get("is_admin"):
+        return True
+    return conn.execute(
+        "SELECT 1 FROM session_participants WHERE session_id = ? AND user_id = ?",
+        (session_id, user["id"])
+    ).fetchone() is not None
+
+
 # Net vote score orders the queue (most-wanted plays next); the manual
 # position (drag to reorder) breaks ties, then insertion id.
 QUEUE_ORDER_SQL = """
     SELECT q.id, q.type, q.spotify_id, q.name, q.artist, q.image,
-           q.duration_ms, q.added_by, u.name as added_by_name,
+           q.duration_ms, q.album_name, q.added_by, u.name as added_by_name,
            COALESCE(SUM(CASE WHEN v.vote = 1 THEN 1 END), 0) as likes,
            COALESCE(SUM(CASE WHEN v.vote = -1 THEN 1 END), 0) as dislikes
     FROM session_queue q
@@ -177,6 +190,7 @@ def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
 
     active_sessions[code] = {
         "connections": {},
+        "mode": data.mode,
         "album_id": data.album_id,
         "current_track_id": first_track["id"] if first_track else None,
         "media": None,
@@ -195,8 +209,12 @@ def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
 
 
 @router.get("/{code}")
-def get_session(code: str):
-    """Get session details."""
+def get_session(code: str, user: Optional[dict] = Depends(get_optional_user)):
+    """Get session details.
+
+    Metadata stays readable pre-join (the join screen needs name/has_password),
+    but room content (queue, media) is stripped for password-room outsiders.
+    """
     with get_connection() as conn:
         session = conn.execute("""
             SELECT ls.*, a.name as album_name, a.cover_url, t.name as current_track_name, t.duration_ms as current_track_duration,
@@ -217,11 +235,12 @@ def get_session(code: str):
             WHERE sp.session_id = ?
         """, (session["id"],)).fetchall()
 
+        # Unique users: two tabs from one user must not count twice.
         active_listener_ids = []
         if code in active_sessions:
-            active_listener_ids = [
+            active_listener_ids = list({
                 e["user_key"] for e in active_sessions[code]["connections"].values()
-            ]
+            })
 
         participant_list = []
         for p in participants:
@@ -231,11 +250,17 @@ def get_session(code: str):
                 "is_online": p["id"] in active_listener_ids
             })
 
+        is_member = not session["password"] or _is_room_member(conn, session["id"], user)
+
         playback_state = {"is_playing": False, "position": 0}
         media_track = None
+        media_seq = 0
+        media_votes = {"likes": 0, "dislikes": 0, "voters": []}
         if code in active_sessions:
             state = active_sessions[code]
             media_track = state.get("media_track")
+            media_seq = state.get("media_seq", 0)
+            media_votes = _media_vote_counts(state)
             playback_state["is_playing"] = state["is_playing"]
             if state["is_playing"] and state["playback_started_at"]:
                 elapsed = int((time.time() - state["playback_started_at"]) * 1000)
@@ -261,9 +286,11 @@ def get_session(code: str):
             "created_by": session["created_by"],
             "created_by_name": session["created_by_name"],
             "mode": session["mode"] or "listening",
-            "media": json.loads(session["current_media"]) if session["current_media"] else None,
-            "media_track": media_track,
-            "queue": fetch_queue(conn, session["id"]),
+            "media": (json.loads(session["current_media"]) if session["current_media"] else None) if is_member else None,
+            "media_track": media_track if is_member else None,
+            "media_seq": media_seq,
+            "media_votes": media_votes if is_member else {"likes": 0, "dislikes": 0, "voters": []},
+            "queue": fetch_queue(conn, session["id"]) if is_member else [],
             "playback": playback_state
         }
 
@@ -314,18 +341,31 @@ async def update_session_track(
     x_user_id = user["id"]
     user_name = None
     with get_connection() as conn:
-        conn.execute("""
-            UPDATE listening_sessions SET current_track_id = ?
-            WHERE code = ? AND is_active = 1
-        """, (track_id, code))
+        session = conn.execute(
+            "SELECT id, mode FROM listening_sessions WHERE code = ? AND is_active = 1",
+            (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+        # Ranking-track picks belong to listening mode; a stale client that
+        # missed the mode_change must not overwrite the hangout clock.
+        if (session["mode"] or "listening") == "hangout":
+            raise HTTPException(409, "Room is in hangout mode")
 
         track = conn.execute(
             "SELECT duration_ms FROM tracks WHERE id = ?", (track_id,)
         ).fetchone()
+        if not track:
+            raise HTTPException(404, "Track not found")
+
+        conn.execute(
+            "UPDATE listening_sessions SET current_track_id = ? WHERE id = ?",
+            (track_id, session["id"])
+        )
 
         if x_user_id:
-            user = conn.execute("SELECT name FROM users WHERE id = ?", (x_user_id,)).fetchone()
-            user_name = user["name"] if user else None
+            row = conn.execute("SELECT name FROM users WHERE id = ?", (x_user_id,)).fetchone()
+            user_name = row["name"] if row else None
 
     if code in active_sessions:
         is_playing = keep_playing or play
@@ -352,8 +392,11 @@ async def update_session_track(
 async def set_session_mode(code: str, mode: str = Query(...), user: dict = Depends(get_current_user)):
     """Switch a room between listening and hangout mode (creator or admin only).
 
-    Playback state is left untouched — switching to hangout keeps any album
-    playing, and switching back restores the ranking UI around it.
+    Switching pauses playback: each mode has its own clock authority (album
+    ranking vs. hangout media), and carrying a live clock across the boundary
+    left the other mode's automation running against stale state. Nothing is
+    lost — track, media, queue, and position all survive the switch, so
+    switching back resumes exactly where the room stopped.
     """
     if mode not in ("listening", "hangout"):
         raise HTTPException(400, "Invalid mode")
@@ -372,6 +415,24 @@ async def set_session_mode(code: str, mode: str = Query(...), user: dict = Depen
 
         conn.execute("UPDATE listening_sessions SET mode = ? WHERE code = ?", (mode, code))
 
+    state = active_sessions.get(code)
+    if state is not None:
+        state["mode"] = mode
+        if state["is_playing"]:
+            if state["playback_started_at"]:
+                elapsed = int((time.time() - state["playback_started_at"]) * 1000)
+                state["playback_position"] += elapsed
+            state["is_playing"] = False
+            state["playback_started_at"] = None
+            # Ordinary pause broadcast: clients already pause Spotify and
+            # their local timers on this, no mode-specific handling needed.
+            await broadcast_to_session(code, {
+                "type": "playback",
+                "action": "pause",
+                "position": state["playback_position"],
+                "by": None
+            })
+
     await broadcast_to_session(code, {
         "type": "mode_change",
         "mode": mode,
@@ -388,6 +449,17 @@ async def set_session_album(code: str, album_id: int = Query(...), user: dict = 
     x_user_id = user["id"]
     user_name = None
     with get_connection() as conn:
+        session = conn.execute(
+            "SELECT id, mode FROM listening_sessions WHERE code = ? AND is_active = 1",
+            (code,)
+        ).fetchone()
+        if not session:
+            raise HTTPException(404, "Session not found")
+        # Album picks drive listening mode; in hangout they'd zero the clock
+        # under playing media (clients ignore album_change there).
+        if (session["mode"] or "listening") == "hangout":
+            raise HTTPException(409, "Room is in hangout mode")
+
         album = conn.execute("SELECT * FROM albums WHERE id = ?", (album_id,)).fetchone()
         if not album:
             raise HTTPException(404, "Album not found")
@@ -399,8 +471,8 @@ async def set_session_album(code: str, album_id: int = Query(...), user: dict = 
 
         conn.execute("""
             UPDATE listening_sessions SET album_id = ?, current_track_id = ?
-            WHERE code = ? AND is_active = 1
-        """, (album_id, first_track["id"] if first_track else None, code))
+            WHERE id = ?
+        """, (album_id, first_track["id"] if first_track else None, session["id"]))
 
         if x_user_id:
             user = conn.execute("SELECT name FROM users WHERE id = ?", (x_user_id,)).fetchone()
@@ -437,12 +509,18 @@ async def set_session_media(code: str, media: SessionMediaSet, user: dict = Depe
     """
     media_dict = media.model_dump()
     with get_connection() as conn:
-        updated = conn.execute("""
-            UPDATE listening_sessions SET current_media = ?
-            WHERE code = ? AND is_active = 1
-        """, (json.dumps(media_dict), code))
-        if updated.rowcount == 0:
+        session = conn.execute(
+            "SELECT id, mode FROM listening_sessions WHERE code = ? AND is_active = 1",
+            (code,)
+        ).fetchone()
+        if not session:
             raise HTTPException(404, "Session not found")
+        if (session["mode"] or "listening") != "hangout":
+            raise HTTPException(409, "Room is not in hangout mode")
+        conn.execute(
+            "UPDATE listening_sessions SET current_media = ? WHERE id = ?",
+            (json.dumps(media_dict), session["id"])
+        )
         row = conn.execute("SELECT name FROM users WHERE id = ?", (user["id"],)).fetchone()
         user_name = row["name"] if row else None
 
@@ -470,14 +548,16 @@ async def set_session_media(code: str, media: SessionMediaSet, user: dict = Depe
 
 
 @router.get("/{code}/queue")
-def get_queue(code: str):
+def get_queue(code: str, user: Optional[dict] = Depends(get_optional_user)):
     """The room's shared play queue."""
     with get_connection() as conn:
         session = conn.execute(
-            "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
+            "SELECT id, password FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
         ).fetchone()
         if not session:
             raise HTTPException(404, "Session not found")
+        if session["password"] and not _is_room_member(conn, session["id"], user):
+            raise HTTPException(403, "Join the room first")
         return {"queue": fetch_queue(conn, session["id"])}
 
 
@@ -491,7 +571,7 @@ async def add_to_queue(code: str, item: SessionMediaSet, user: dict = Depends(ge
     media_dict = item.model_dump()
     with get_connection() as conn:
         session = conn.execute(
-            "SELECT id, current_media FROM listening_sessions WHERE code = ? AND is_active = 1",
+            "SELECT id, mode, current_media FROM listening_sessions WHERE code = ? AND is_active = 1",
             (code,)
         ).fetchone()
         if not session:
@@ -502,7 +582,9 @@ async def add_to_queue(code: str, item: SessionMediaSet, user: dict = Depends(ge
             json.loads(session["current_media"]) if session["current_media"] else None
         )
 
-        started = current is None
+        # Auto-start only in hangout mode; in listening mode the item just
+        # queues (starting media there would fight the ranking playback).
+        started = current is None and (session["mode"] or "listening") == "hangout"
         if started:
             conn.execute(
                 "UPDATE listening_sessions SET current_media = ? WHERE id = ?",
@@ -510,11 +592,11 @@ async def add_to_queue(code: str, item: SessionMediaSet, user: dict = Depends(ge
             )
         else:
             conn.execute("""
-                INSERT INTO session_queue (session_id, added_by, type, spotify_id, name, artist, image, duration_ms, position)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+                INSERT INTO session_queue (session_id, added_by, type, spotify_id, name, artist, image, duration_ms, album_name, position)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
                         (SELECT COALESCE(MAX(position), 0) + 1 FROM session_queue WHERE session_id = ?))
             """, (session["id"], user["id"], item.type, item.spotify_id, item.name,
-                  item.artist, item.image, item.duration_ms, session["id"]))
+                  item.artist, item.image, item.duration_ms, item.album_name, session["id"]))
         queue = fetch_queue(conn, session["id"])
 
     if started and state is not None:
@@ -692,7 +774,8 @@ async def _advance_now_playing(code: str, state: dict, skip_reason: str = None) 
             media_dict = {
                 "type": head["type"], "spotify_id": head["spotify_id"],
                 "name": head["name"], "artist": head["artist"],
-                "image": head["image"], "duration_ms": head["duration_ms"]
+                "image": head["image"], "duration_ms": head["duration_ms"],
+                "album_name": head["album_name"]
             }
         # Empty queue clears now-playing: the room reads "nothing on" again
         # and the next added item starts immediately instead of queueing
@@ -769,13 +852,17 @@ async def advance_queue(
 
     Anonymous guests may advance too: a guest-only room must not stall when a
     track ends, attribution comes from the queue item (not the caller), and the
-    seq guard already de-dupes concurrent reports.
+    mandatory seq guard de-dupes concurrent reports and blocks blind skips.
     """
     state = active_sessions.get(code)
     if state is None:
         raise HTTPException(404, "Session not active")
 
-    if seq is not None and seq != state.get("media_seq", 0):
+    # seq is mandatory proof the caller saw the room state (else anyone with
+    # the code could drain the queue); stale seq = already advanced; wrong
+    # mode = report into a ranking room. All no-ops, never errors.
+    if seq is None or seq != state.get("media_seq", 0) \
+            or state.get("mode", "listening") != "hangout":
         with get_connection() as conn:
             session = conn.execute(
                 "SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)
@@ -809,6 +896,10 @@ async def vote_current_media(code: str, vote: str = Query(...), user: dict = Dep
     state = active_sessions.get(code)
     if state is None or not state.get("media"):
         raise HTTPException(404, "Nothing is playing")
+    # Media lingers after a switch to listening — votes there would advance
+    # the hangout queue and seize the ranking room's clock.
+    if state.get("mode", "listening") != "hangout":
+        raise HTTPException(409, "Room is not in hangout mode")
 
     value = 1 if vote == "up" else -1
     votes = state.setdefault("media_votes", {})
@@ -819,9 +910,10 @@ async def vote_current_media(code: str, vote: str = Query(...), user: dict = Dep
 
     counts = _media_vote_counts(state)
 
-    # Vote-to-skip decision + seq snapshot happen before any await, so a
-    # concurrent vote can't sneak in between decision and advance.
-    online = len(session_listeners(state))
+    # Skip decision + seq snapshot happen before any await (no interleaved
+    # vote). Threshold counts authed listeners only (int user_key) — guests
+    # can't vote and would make it unreachable.
+    online = sum(1 for l in session_listeners(state) if isinstance(l["user_id"], int))
     threshold = max(2, -(-online // 2))  # ceil(online / 2), never below 2
     should_skip = counts["dislikes"] >= threshold
     seq_at_vote = state.get("media_seq", 0)
@@ -852,6 +944,10 @@ async def control_playback(code: str, action: str = Query(...), position: Option
     # "by" lets clients that already applied the action optimistically
     # (e.g. the seeking user) skip re-applying their own echo.
     if action == "play":
+        # Hangout with nothing on: the drained-queue stop is final — a stale
+        # play toggle must not resurrect a clock with no media behind it.
+        if state.get("mode", "listening") == "hangout" and not state.get("media"):
+            return {"ok": True, "ignored": True}
         state["is_playing"] = True
         state["playback_started_at"] = time.time()
         await broadcast_to_session(code, {
@@ -894,16 +990,21 @@ def get_session_messages(
     before_id: Optional[int] = Query(None),
     after_id: Optional[int] = Query(None),
     limit: int = Query(50, ge=1, le=100),
+    user: Optional[dict] = Depends(get_optional_user),
 ):
     """Chat history, keyset-paginated by message id (offset shifts under live
     inserts). `before_id` pages older (scroll-up); `after_id` is reconnect
     catch-up. Always returned ascending."""
     with get_connection() as conn:
         session = conn.execute(
-            "SELECT id FROM listening_sessions WHERE code = ?", (code,)
+            "SELECT id, password FROM listening_sessions WHERE code = ?", (code,)
         ).fetchone()
         if not session:
             raise HTTPException(404, "Session not found")
+        # Chat is the room's content — a password room's history must not be
+        # readable by anyone who merely learns the 6-char code.
+        if session["password"] and not _is_room_member(conn, session["id"], user):
+            raise HTTPException(403, "Join the room first")
 
         where = "m.session_id = ?"
         params = [session["id"]]
@@ -970,12 +1071,13 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
     if code not in active_sessions:
         with get_connection() as conn:
             session = conn.execute(
-                "SELECT album_id, current_track_id, current_media, name FROM listening_sessions WHERE code = ? AND is_active = 1",
+                "SELECT album_id, current_track_id, current_media, mode, name FROM listening_sessions WHERE code = ? AND is_active = 1",
                 (code,)
             ).fetchone()
             if session:
                 active_sessions[code] = {
                     "connections": {},
+                    "mode": session["mode"] or "listening",
                     "album_id": session["album_id"],
                     "current_track_id": session["current_track_id"],
                     "media": json.loads(session["current_media"]) if session["current_media"] else None,
@@ -992,9 +1094,15 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
     user_name = "Guest"
     session_db_id = None
     with get_connection() as conn:
-        session = conn.execute("SELECT id FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)).fetchone()
+        session = conn.execute("SELECT id, password FROM listening_sessions WHERE code = ? AND is_active = 1", (code,)).fetchone()
         if session:
             session_db_id = session["id"]
+        # Password rooms admit members only: /join verifies the password and
+        # grants membership — the socket must never self-grant it.
+        if session and session["password"] and not _is_room_member(conn, session_db_id, authed):
+            await websocket.send_json({"type": "error", "message": "Join the room first"})
+            await websocket.close()
+            return
         if user_id:
             user = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
             if user:
@@ -1035,8 +1143,12 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
         with get_connection() as conn:
             queue = fetch_queue(conn, session_db_id)
 
+    # mode + album_id ride along so a reconnect catches up on switches and
+    # album changes broadcast while the socket was down.
     await websocket.send_json({
         "type": "sync",
+        "mode": state.get("mode", "listening"),
+        "album_id": state.get("album_id"),
         "track_id": state["current_track_id"],
         "media": state.get("media"),
         "media_seq": state.get("media_seq", 0),
@@ -1060,8 +1172,10 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                 # album context + position) so a rejoin resumes mid-album
                 # instead of restarting at track 1. Latest report wins.
                 prog = data.get("progress")
+                in_hangout = state.get("mode", "listening") == "hangout"
                 if (
-                    isinstance(prog, dict) and state.get("media") and state.get("is_playing")
+                    isinstance(prog, dict) and in_hangout
+                    and state.get("media") and state.get("is_playing")
                     and prog.get("media_seq") == state.get("media_seq", 0)
                     and isinstance(prog.get("track_spotify_id"), str)
                     and isinstance(prog.get("position"), (int, float))
@@ -1077,10 +1191,11 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                 if state.get("is_playing") and state.get("playback_started_at"):
                     elapsed = int((time.time() - state["playback_started_at"]) * 1000)
                     current_position += elapsed
-                # Autoplay fallback: a track overran its duration and no
-                # client reported the end — advance the queue server-side.
+                # Autoplay fallback: track overran its duration with no client
+                # reporting the end — advance server-side. Hangout only:
+                # leftover media must never hijack ranking playback.
                 m = state.get("media")
-                if (state.get("is_playing") and m and m.get("type") == "track"
+                if (in_hangout and state.get("is_playing") and m and m.get("type") == "track"
                         and m.get("duration_ms")
                         and current_position >= m["duration_ms"] + 2000):
                     try:
@@ -1147,7 +1262,9 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                 })
 
             elif msg_type == "reaction":
+                # Same feedback as chat — a silent drop looks like a dead UI.
                 if not user_id or not session_db_id:
+                    await websocket.send_json({"type": "error", "message": "Sign in to react"})
                     continue
                 message_id = data.get("message_id")
                 emoji = str(data.get("emoji") or "")
@@ -1196,6 +1313,13 @@ async def session_websocket(websocket: WebSocket, code: str, token: Optional[str
                     "user_name": user_name,
                     "active_count": len(session_listeners(state))
                 })
+            # Last one out freezes the clock: an empty room's position must
+            # not keep running (phantom sync hours ahead, ghost queue advance).
+            if not state["connections"] and state["is_playing"]:
+                if state["playback_started_at"]:
+                    state["playback_position"] += int((time.time() - state["playback_started_at"]) * 1000)
+                state["is_playing"] = False
+                state["playback_started_at"] = None
 
 
 @router.delete("/{code}")

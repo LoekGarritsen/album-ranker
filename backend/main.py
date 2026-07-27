@@ -60,7 +60,9 @@ app.include_router(albums.router, dependencies=_auth)
 app.include_router(rankings.router, dependencies=_auth)
 app.include_router(analytics.router, dependencies=_auth)
 app.include_router(gifs.router, dependencies=_auth)
-app.include_router(lyrics.router, dependencies=_auth)
+# Lyrics are public LRCLIB data and hangout guests have no account — rate
+# limited per-IP in the router instead of auth-gated.
+app.include_router(lyrics.router)
 app.include_router(favorites.router, dependencies=_auth)
 
 

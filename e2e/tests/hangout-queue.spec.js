@@ -78,8 +78,10 @@ test('votes reorder the queue and advance pops the top-voted item', async ({ req
   expect(reordered[0].spotify_id).toBe('e2e_q_3')
   expect(reordered[0].likes).toBe(2)
 
-  // Advance pops the top-voted item into now-playing
-  const adv = await request.post(`${baseUrl}/api/sessions/${code}/queue/next`, {
+  // Advance pops the top-voted item into now-playing (seq is mandatory
+  // proof the caller saw the room state)
+  const seq = (await (await request.get(`${baseUrl}/api/sessions/${code}`)).json()).media_seq
+  const adv = await request.post(`${baseUrl}/api/sessions/${code}/queue/next?seq=${seq}`, {
     headers: bearer(host),
   })
   const advBody = await adv.json()
@@ -121,7 +123,8 @@ test('anonymous guest can advance the queue (guest-only rooms must not stall)', 
     headers: bearer(host),
     data: media(4),
   })
-  const res = await request.post(`${baseUrl}/api/sessions/${code}/queue/next`)
+  const seq = (await (await request.get(`${baseUrl}/api/sessions/${code}`)).json()).media_seq
+  const res = await request.post(`${baseUrl}/api/sessions/${code}/queue/next?seq=${seq}`)
   expect(res.ok()).toBeTruthy()
   expect((await res.json()).advanced).toBe(true)
 

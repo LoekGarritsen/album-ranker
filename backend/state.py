@@ -5,8 +5,9 @@ This module contains global state that needs to be shared across routers,
 particularly for WebSocket session management.
 """
 
-# Active listening sessions with real-time state
-# Structure: code -> {connections, album_id, current_track_id, is_playing, playback_position, playback_started_at}
+# Active listening sessions with real-time state, keyed by room code:
+# {connections, mode, album_id, current_track_id, media, media_seq,
+#  media_track, media_votes, is_playing, playback_position, playback_started_at}
 active_sessions: dict = {}
 
 # Short-lived Spotify OAuth states (CSRF nonce -> {"user_id", "expires_at"}).

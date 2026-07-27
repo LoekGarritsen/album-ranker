@@ -35,7 +35,7 @@ class TestGuestQueueAdvance:
         assert not client.post(f"/api/sessions/{code}/queue", json=_media(2), headers=admin_headers).json()["started"]
 
         # No Authorization header at all — the anonymous-guest path
-        res = client.post(f"/api/sessions/{code}/queue/next")
+        res = client.post(f"/api/sessions/{code}/queue/next?seq=1")
         assert res.status_code == 200
         body = res.json()
         assert body["advanced"] is True
@@ -60,12 +60,23 @@ class TestGuestQueueAdvance:
         code = _make_hangout_room(client, admin_headers)
         client.post(f"/api/sessions/{code}/queue", json=_media(1), headers=admin_headers)
 
-        res = client.post(f"/api/sessions/{code}/queue/next")
+        res = client.post(f"/api/sessions/{code}/queue/next?seq=1")
         assert res.status_code == 200
         assert res.json()["advanced"] is False
 
         session = client.get(f"/api/sessions/{code}").json()
         assert session["playback"]["is_playing"] is False
+
+    def test_guest_advance_without_seq_is_noop(self, client, admin_headers):
+        # seq is mandatory proof of room state — omitting it must not skip.
+        code = _make_hangout_room(client, admin_headers)
+        client.post(f"/api/sessions/{code}/queue", json=_media(1), headers=admin_headers)
+        client.post(f"/api/sessions/{code}/queue", json=_media(2), headers=admin_headers)
+
+        res = client.post(f"/api/sessions/{code}/queue/next")
+        assert res.status_code == 200
+        assert res.json()["advanced"] is False
+        assert client.get(f"/api/sessions/{code}").json()["media"]["spotify_id"] == "guest_q_1"
 
     def test_guest_still_cannot_add_or_remove_or_vote(self, client, admin_headers):
         code = _make_hangout_room(client, admin_headers)

@@ -671,4 +671,91 @@ describe('useSession', () => {
       expect(session.progressPercent.value).toBeCloseTo(16.67, 1)
     })
   })
+
+  describe('hangout mode gating (retained album from a mode switch)', () => {
+    const MEDIA = {
+      type: 'track', spotify_id: 'spM', name: 'Hang Song', artist: 'A',
+      image: null, duration_ms: 111000
+    }
+
+    // Hangout room that kept its ranking album across the switch — the
+    // media clock must win everywhere over the stale track's.
+    function hangoutRoomMocks(extra = {}) {
+      return {
+        '/api/sessions/HANG09': {
+          data: {
+            code: 'HANG09', mode: 'hangout', album_id: 1, current_track_id: 1,
+            current_track_duration: 180000, media: MEDIA, media_seq: 3,
+            media_votes: { likes: 1, dislikes: 0, voters: [{ user_id: 2, vote: 1 }] },
+            queue: [{ id: 9, name: 'Queued Song' }],
+            playback: { is_playing: false, position: 0 }, participants: [], ...extra
+          }
+        },
+        '/api/albums/1': {
+          data: { id: 1, spotify_id: 'alb1', tracks: [{ id: 1, name: 'Track 1', duration_ms: 180000 }] }
+        },
+        '/api/sessions/HANG09/messages': { data: { messages: [], has_more: false } }
+      }
+    }
+
+    it('joinSession applies queue/votes from REST and lets media duration win', async () => {
+      global.fetch = mockFetch(hangoutRoomMocks())
+      await session.joinSession('HANG09', { id: 1, name: 'Me' })
+
+      expect(session.queue.value).toHaveLength(1)
+      expect(session.mediaVotes.value.likes).toBe(1)
+      // Media clock, not the retained ranking track's 180000
+      expect(session.currentTrackDuration.value).toBe(111000)
+    })
+
+    it('sync in hangout keeps the media duration over the retained track', async () => {
+      global.fetch = mockFetch(hangoutRoomMocks())
+      await session.joinSession('HANG09', { id: 1, name: 'Me' })
+      const ws = wsInstances[wsInstances.length - 1]
+
+      ws._receiveMessage({
+        type: 'sync', mode: 'hangout', album_id: 1, track_id: 1, media: MEDIA,
+        media_seq: 4, is_playing: false, position: 0, listeners: []
+      })
+      await nextTick()
+      expect(session.currentTrackDuration.value).toBe(111000)
+    })
+
+    it('switching rooms resets chat and queue from the previous room', async () => {
+      global.fetch = mockFetch(hangoutRoomMocks())
+      await session.joinSession('HANG09', { id: 1, name: 'Me' })
+      const ws = wsInstances[wsInstances.length - 1]
+
+      ws._receiveMessage({
+        type: 'chat_message', id: 42, user_id: 2, user_name: 'Friend',
+        content: 'hello from room A', created_at: '2026-01-01T00:00:00Z'
+      })
+      expect(session.chatMessages.value).toHaveLength(1)
+
+      global.fetch = mockFetch({
+        '/api/sessions/ROOM02': {
+          data: {
+            code: 'ROOM02', mode: 'hangout', media: null, queue: [],
+            playback: { is_playing: false, position: 0 }, participants: []
+          }
+        }
+      })
+      await session.joinSession('ROOM02', { id: 1, name: 'Me' })
+
+      expect(session.chatMessages.value).toHaveLength(0)
+      expect(session.queue.value).toHaveLength(0)
+      expect(session.mediaVotes.value.likes).toBe(0)
+    })
+
+    it('access-rejection error frame clears the session (no reconnect loop)', async () => {
+      global.fetch = mockFetch(hangoutRoomMocks())
+      await session.joinSession('HANG09', { id: 1, name: 'Me' })
+      const ws = wsInstances[wsInstances.length - 1]
+
+      ws._receiveMessage({ type: 'error', message: 'Join the room first' })
+      await nextTick()
+      expect(session.session.value).toBeNull()
+      expect(session.isInSession.value).toBe(false)
+    })
+  })
 })

@@ -37,6 +37,26 @@ class TestWebSocketConnection:
             assert sync["type"] == "sync"
             assert sync["track_id"] == 1
 
+    def test_websocket_sync_includes_mode_and_album(self, client, admin_headers, admin_token):
+        """Reconnect catch-up: mode/album switches missed while the socket was
+        down arrive via the sync snapshot."""
+        code = _make_session(client, admin_headers, mode="hangout")
+        with client.websocket_connect(ws_url(code, admin_token)) as ws:
+            ws.receive_json()  # user_joined
+            sync = ws.receive_json()
+            assert sync["mode"] == "hangout"
+            assert sync["album_id"] is None
+
+    def test_two_tabs_count_as_one_listener(self, client, admin_headers, admin_token):
+        code = _make_session(client, admin_headers)
+        with client.websocket_connect(ws_url(code, admin_token)) as ws1:
+            ws1.receive_json()  # user_joined
+            ws1.receive_json()  # sync
+            with client.websocket_connect(ws_url(code, admin_token)) as ws2:
+                ws2.receive_json()  # sync (no user_joined: same user, second tab)
+                data = client.get(f"/api/sessions/{code}").json()
+                assert data["active_listeners"] == 1
+
     def test_websocket_connect_as_guest(self, client, admin_headers):
         code = _make_session(client, admin_headers, name="Guest Test Room")
         with client.websocket_connect(ws_url(code)) as ws:

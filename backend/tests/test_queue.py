@@ -21,6 +21,38 @@ def _media(name="Song A", spotify_id="sp_a", media_type="track"):
     }
 
 
+class TestModeGating:
+    """Hangout automation must not fire while a room is in listening mode."""
+
+    def test_add_in_listening_room_queues_instead_of_starting(self, client, admin_headers):
+        res = client.post("/api/sessions", json={"name": "Rank", "mode": "listening"}, headers=admin_headers)
+        code = res.json()["code"]
+        res = client.post(f"/api/sessions/{code}/queue", json=_media(), headers=admin_headers)
+        assert res.status_code == 200
+        assert res.json()["started"] is False
+        assert len(res.json()["queue"]) == 1
+        assert client.get(f"/api/sessions/{code}").json()["media"] is None
+
+    def test_advance_is_noop_in_listening_mode(self, client, admin_headers):
+        code = _create_hangout(client, admin_headers)
+        client.post(f"/api/sessions/{code}/queue", json=_media("Now"), headers=admin_headers)
+        client.post(f"/api/sessions/{code}/queue", json=_media("Queued", "sp_b"), headers=admin_headers)
+        client.post(f"/api/sessions/{code}/mode", params={"mode": "listening"}, headers=admin_headers)
+
+        res = client.post(f"/api/sessions/{code}/queue/next?seq=1", headers=admin_headers)
+        assert res.status_code == 200
+        assert res.json()["advanced"] is False
+        data = client.get(f"/api/sessions/{code}").json()
+        assert data["media"]["name"] == "Now"
+        assert len(data["queue"]) == 1
+
+        # Switching back re-enables the queue with everything intact.
+        client.post(f"/api/sessions/{code}/mode", params={"mode": "hangout"}, headers=admin_headers)
+        res = client.post(f"/api/sessions/{code}/queue/next?seq=1", headers=admin_headers)
+        assert res.json()["advanced"] is True
+        assert client.get(f"/api/sessions/{code}").json()["media"]["name"] == "Queued"
+
+
 class TestQueueAdd:
     def test_first_add_in_idle_room_starts_playing(self, client, admin_headers):
         code = _create_hangout(client, admin_headers)

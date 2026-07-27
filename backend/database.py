@@ -128,6 +128,7 @@ def init_db():
                 image TEXT,
                 duration_ms INTEGER DEFAULT 0,
                 position INTEGER DEFAULT 0,
+                album_name TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_session_queue_session
@@ -280,6 +281,10 @@ def _run_migrations(conn):
     if 'position' not in queue_columns:
         conn.execute("ALTER TABLE session_queue ADD COLUMN position INTEGER DEFAULT 0")
         conn.execute("UPDATE session_queue SET position = id")
+
+    # Source album of a queued track — improves LRCLIB lyrics matching
+    if 'album_name' not in queue_columns:
+        conn.execute("ALTER TABLE session_queue ADD COLUMN album_name TEXT")
 
     if 'email' not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")

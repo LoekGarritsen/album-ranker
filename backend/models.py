@@ -151,6 +151,8 @@ class SessionMediaSet(BaseModel):
     artist: str = Field(default="", max_length=300)
     image: Optional[str] = Field(default=None, max_length=500)
     duration_ms: int = Field(default=0, ge=0)
+    # Source album of a track — rides along for lyrics (LRCLIB) matching
+    album_name: Optional[str] = Field(default=None, max_length=300)
 
 
 # === WebSocket Message Models ===
@@ -166,26 +168,50 @@ class WSMessageType(str, Enum):
     PING = "ping"
     CHAT = "chat"
     TYPING = "typing"
+    REACTION = "reaction"
 
     # Server -> Client
     PONG = "pong"
     CHAT_MESSAGE = "chat_message"
     USER_TYPING = "user_typing"
+    REACTION_UPDATE = "reaction"  # broadcast echo of a reaction toggle
     SYNC = "sync"
     TRACK_CHANGE = "track_change"
     ALBUM_CHANGE = "album_change"
+    MODE_CHANGE = "mode_change"
+    MEDIA_CHANGE = "media_change"
+    MEDIA_VOTE = "media_vote"
+    QUEUE_UPDATE = "queue_update"
     PLAYBACK = "playback"
     RATING = "rating"
     USER_JOINED = "user_joined"
     USER_LEFT = "user_left"
     SESSION_ENDED = "session_ended"
+    ERROR = "error"
 
 
 # --- Client -> Server Messages ---
 
+class WSPingProgress(BaseModel):
+    """Hangout Spotify clock report riding on a ping (latest report wins)."""
+    media_seq: int
+    track_spotify_id: str
+    track_name: str = ""
+    duration_ms: int = 0
+    position: int
+
+
 class WSClientPing(BaseModel):
     """Client ping to keep connection alive and sync position."""
     type: Literal["ping"] = "ping"
+    progress: Optional[WSPingProgress] = None
+
+
+class WSClientReaction(BaseModel):
+    """Toggle an emoji reaction on a chat message (authed users only)."""
+    type: Literal["reaction"] = "reaction"
+    message_id: int
+    emoji: str = Field(min_length=1, max_length=16)
 
 
 # --- Server -> Client Messages ---
@@ -196,20 +222,43 @@ class WSListener(BaseModel):
     user_name: str
 
 
+class WSMediaTrack(BaseModel):
+    """Live track within hangout album media, reported via ping progress."""
+    spotify_id: str
+    name: str = ""
+    duration_ms: int = 0
+
+
+class WSMediaVotes(BaseModel):
+    """Ephemeral like/dislike tally on the current hangout media."""
+    likes: int
+    dislikes: int
+    voters: list[dict] = []  # [{user_id, vote}]
+
+
 class WSServerPong(BaseModel):
     """Server response to ping with current playback state."""
     type: Literal["pong"] = "pong"
     position: int  # Current position in ms
     is_playing: bool
+    media_track: Optional[WSMediaTrack] = None
 
 
 class WSServerSync(BaseModel):
-    """Initial state sent to client on WebSocket connect."""
+    """Initial state sent to client on WebSocket connect. Carries mode and
+    album_id so a reconnect catches up on switches missed while down."""
     type: Literal["sync"] = "sync"
+    mode: Literal["listening", "hangout"]
+    album_id: Optional[int]
     track_id: Optional[int]
+    media: Optional[dict]  # SessionMediaSet shape
+    media_seq: int
+    media_track: Optional[WSMediaTrack]
+    media_votes: WSMediaVotes
     is_playing: bool
     position: int
     listeners: list[WSListener]
+    queue: list[dict]
 
 
 class WSServerTrackChange(BaseModel):
@@ -275,12 +324,73 @@ class WSServerSessionEnded(BaseModel):
     message: str
 
 
+class WSServerModeChange(BaseModel):
+    """Broadcast when the room switches between listening and hangout."""
+    type: Literal["mode_change"] = "mode_change"
+    mode: Literal["listening", "hangout"]
+    changed_by: Optional[int] = None
+    changed_by_name: Optional[str] = None
+
+
+class WSServerMediaChange(BaseModel):
+    """Broadcast when the hangout now-playing changes (set, queue advance,
+    or vote-skip). media None = queue drained, nothing on."""
+    type: Literal["media_change"] = "media_change"
+    media: Optional[dict]  # SessionMediaSet shape
+    media_seq: int
+    is_playing: bool
+    position: int
+    auto: bool = False
+    skip_reason: Optional[str] = None
+    changed_by: Optional[int] = None
+    changed_by_name: Optional[str] = None
+
+
+class WSServerMediaVote(BaseModel):
+    """Broadcast on every like/dislike toggle of the current media."""
+    type: Literal["media_vote"] = "media_vote"
+    likes: int
+    dislikes: int
+    voters: list[dict] = []
+    by: Optional[int] = None
+    by_name: Optional[str] = None
+
+
+class WSServerQueueUpdate(BaseModel):
+    """Broadcast whenever the shared queue changes; carries the full queue."""
+    type: Literal["queue_update"] = "queue_update"
+    action: Literal["added", "removed", "voted", "moved", "advanced"]
+    item: Optional[dict]
+    by: Optional[int]
+    by_name: Optional[str]
+    queue: list[dict]
+
+
+class WSServerReaction(BaseModel):
+    """Broadcast when a chat-message reaction is toggled."""
+    type: Literal["reaction"] = "reaction"
+    message_id: int
+    emoji: str
+    user_id: int
+    user_name: str
+    action: Literal["added", "removed"]
+
+
+class WSServerError(BaseModel):
+    """Direct reply when a client message is rejected (e.g. guest chat)."""
+    type: Literal["error"] = "error"
+    message: str
+
+
 # --- Chat (hangout mode) ---
 
 class WSClientChat(BaseModel):
-    """Client sends a chat message (authed users only)."""
+    """Client sends a chat message (authed users only). client_id reconciles
+    the sender's optimistic bubble when the broadcast echoes back."""
     type: Literal["chat"] = "chat"
     content: str = Field(min_length=1, max_length=1000)
+    kind: Literal["text", "gif"] = "text"
+    client_id: Optional[str] = None
 
 
 class WSClientTyping(BaseModel):
@@ -289,12 +399,15 @@ class WSClientTyping(BaseModel):
 
 
 class WSServerChatMessage(BaseModel):
-    """Broadcast when a chat message is posted."""
+    """Broadcast when a chat message is posted. client_id echoes the sender's
+    optimistic-bubble id; kind distinguishes text from Giphy GIF messages."""
     type: Literal["chat_message"] = "chat_message"
     id: int
+    client_id: Optional[str] = None
     user_id: int
     user_name: str
     content: str
+    kind: Literal["text", "gif"] = "text"
     created_at: str
 
 
