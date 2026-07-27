@@ -61,7 +61,7 @@ watch([selectedYear, currentUser], loadReview)
 
       <select
         v-model="selectedYear"
-        class="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-accent-primary"
+        class="px-4 py-2 bg-surface-highlight border border-transparent rounded-lg text-white focus:outline-none focus:border-accent-primary"
       >
         <option v-for="year in years" :key="year" :value="year">
           {{ year }}
@@ -140,12 +140,12 @@ watch([selectedYear, currentUser], loadReview)
           <div
             v-for="(album, i) in review.top_albums"
             :key="i"
-            class="flex items-center gap-3 p-3 bg-white/5 rounded-xl"
+            class="flex items-center gap-3 p-3 bg-surface-highlight rounded-lg"
           >
             <div class="text-2xl font-heading font-bold text-white/40 w-8">{{ i + 1 }}</div>
             <img
               :src="album.cover_url || '/placeholder.svg'"
-              class="w-12 h-12 rounded object-cover bg-white/10"
+              class="w-12 h-12 rounded-md object-cover bg-surface-highlight"
             />
             <div class="flex-1 min-w-0">
               <p class="truncate font-medium">{{ album.name }}</p>
@@ -173,7 +173,7 @@ watch([selectedYear, currentUser], loadReview)
             <div class="text-sm font-medium text-text-subdued w-6">{{ i + 1 }}</div>
             <img
               :src="track.cover_url || '/placeholder.svg'"
-              class="w-10 h-10 rounded object-cover bg-white/10"
+              class="w-10 h-10 rounded-md object-cover bg-surface-highlight"
             />
             <div class="flex-1 min-w-0">
               <p class="truncate">{{ track.name }}</p>
@@ -200,7 +200,7 @@ watch([selectedYear, currentUser], loadReview)
           >
             <img
               :src="track.cover_url || '/placeholder.svg'"
-              class="w-10 h-10 rounded object-cover bg-white/10"
+              class="w-10 h-10 rounded-md object-cover bg-surface-highlight"
             />
             <div class="flex-1 min-w-0">
               <p class="truncate">{{ track.name }}</p>

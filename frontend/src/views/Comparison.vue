@@ -63,7 +63,7 @@ watch([user1Id, user2Id], loadComparison)
       <div class="flex items-center gap-3 sm:gap-4 flex-wrap justify-center sm:justify-start">
         <select
           v-model="user1Id"
-          class="px-3 sm:px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-accent-primary min-h-[44px] text-sm sm:text-base"
+          class="px-3 sm:px-4 py-2 bg-surface-highlight border border-transparent rounded-lg text-white focus:outline-none focus:border-accent-primary min-h-[44px] text-sm sm:text-base"
         >
           <option v-for="user in users" :key="user.id" :value="user.id">
             {{ user.name }}
@@ -74,7 +74,7 @@ watch([user1Id, user2Id], loadComparison)
 
         <select
           v-model="user2Id"
-          class="px-3 sm:px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-accent-primary min-h-[44px] text-sm sm:text-base"
+          class="px-3 sm:px-4 py-2 bg-surface-highlight border border-transparent rounded-lg text-white focus:outline-none focus:border-accent-primary min-h-[44px] text-sm sm:text-base"
         >
           <option v-for="user in users" :key="user.id" :value="user.id">
             {{ user.name }}
@@ -87,16 +87,16 @@ watch([user1Id, user2Id], loadComparison)
     <div class="flex gap-2 mb-6">
       <button
         @click="activeTab = 'albums'"
-        class="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-colors min-h-[44px]"
-        :class="activeTab === 'albums' ? 'bg-accent-primary text-black' : 'glass'"
+        class="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full transition-colors min-h-[44px]"
+        :class="activeTab === 'albums' ? 'bg-white text-black' : 'bg-surface-highlight text-white hover:bg-surface-elevated'"
       >
         <Disc3 class="w-4 h-4" />
         Albums
       </button>
       <button
         @click="activeTab = 'tracks'"
-        class="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-colors min-h-[44px]"
-        :class="activeTab === 'tracks' ? 'bg-accent-primary text-black' : 'glass'"
+        class="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full transition-colors min-h-[44px]"
+        :class="activeTab === 'tracks' ? 'bg-white text-black' : 'bg-surface-highlight text-white hover:bg-surface-elevated'"
       >
         <Music class="w-4 h-4" />
         Tracks
@@ -126,7 +126,7 @@ watch([user1Id, user2Id], loadComparison)
           <div class="flex items-center gap-2 sm:gap-3 min-w-0">
             <img
               :src="album.cover_url || '/placeholder.svg'"
-              class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-white/10 flex-shrink-0"
+              class="w-8 h-8 sm:w-10 sm:h-10 rounded-md object-cover bg-surface-highlight flex-shrink-0"
             />
             <span class="truncate text-sm sm:text-base">{{ album.name }}</span>
           </div>
@@ -156,7 +156,7 @@ watch([user1Id, user2Id], loadComparison)
           <div class="flex items-center gap-2 sm:gap-3 min-w-0">
             <img
               :src="track.cover_url || '/placeholder.svg'"
-              class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-white/10 flex-shrink-0"
+              class="w-8 h-8 sm:w-10 sm:h-10 rounded-md object-cover bg-surface-highlight flex-shrink-0"
             />
             <div class="min-w-0">
               <p class="truncate text-sm sm:text-base">{{ track.name }}</p>

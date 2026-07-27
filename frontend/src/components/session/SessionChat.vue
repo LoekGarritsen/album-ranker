@@ -248,7 +248,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
         <button
           @click="handleLoadOlder"
           :disabled="loadingOlder"
-          class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-text-subdued bg-white/5 hover:bg-white/10 rounded-full transition-colors"
+          class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-text-subdued bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors"
         >
           <Loader2 v-if="loadingOlder" class="w-3 h-3 animate-spin" />
           Load earlier messages
@@ -283,7 +283,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
                 :src="item.message.content"
                 alt="GIF"
                 loading="lazy"
-                class="rounded-xl max-h-48 max-w-[240px] w-auto border border-white/10"
+                class="rounded-lg max-h-48 max-w-[240px] w-auto border border-white/10"
                 :class="{ 'opacity-50': item.message.pending }"
               />
             </div>
@@ -300,7 +300,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
             <button
               v-if="canChat && item.message.id"
               @click="reactionPickerFor = reactionPickerFor === item.message.id ? null : item.message.id"
-              class="p-1 rounded-md text-text-subdued hover:text-white/90 hover:bg-white/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity flex-shrink-0"
+              class="p-1 rounded-md text-text-subdued hover:text-white/90 hover:bg-surface-highlight opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity flex-shrink-0"
               aria-label="Add reaction"
             >
               <SmilePlus class="w-4 h-4" />
@@ -310,13 +310,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
           <!-- Reaction picker -->
           <div
             v-if="reactionPickerFor === item.message.id"
-            class="absolute right-0 z-10 flex gap-1 p-1.5 rounded-xl bg-surface-elevated border border-white/10 shadow-xl"
+            class="absolute right-0 z-10 flex gap-1 p-1.5 rounded-lg bg-surface-elevated border border-white/10 shadow-xl"
           >
             <button
               v-for="emoji in REACTION_SET"
               :key="emoji"
               @click="handleReaction(item.message, emoji)"
-              class="w-8 h-8 flex items-center justify-center text-lg hover:bg-white/10 rounded-lg transition-colors"
+              class="w-8 h-8 flex items-center justify-center text-lg hover:bg-surface-highlight rounded-lg transition-colors"
             >{{ emoji }}</button>
           </div>
 
@@ -326,10 +326,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
               v-for="chip in reactionChips(item.message)"
               :key="chip.emoji"
               @click="canChat && handleReaction(item.message, chip.emoji)"
-              class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors"
+              class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-colors"
               :class="chip.mine
-                ? 'bg-accent-primary/20 border-accent-primary/50 text-accent-primary'
-                : 'bg-white/5 border-white/10 text-text-subdued hover:bg-white/10'"
+                ? 'bg-accent-primary/20 text-accent-primary'
+                : 'bg-surface-highlight text-text-subdued hover:bg-surface-elevated'"
               :title="chip.names.join(', ')"
             >
               <span>{{ chip.emoji }}</span>
@@ -343,7 +343,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
       <button
         v-if="newMessageCount > 0"
         @click="scrollToBottom()"
-        class="sticky bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-accent-primary text-black text-xs font-medium rounded-full shadow-lg"
+        class="sticky bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-accent-primary text-black text-xs font-bold rounded-full hover:bg-accent-bright transition-colors shadow-lg"
       >
         <ArrowDown class="w-3 h-3" />
         {{ newMessageCount }} new {{ newMessageCount === 1 ? 'message' : 'messages' }}
@@ -360,7 +360,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
       <!-- Emoji picker panel -->
       <div
         v-if="showEmojiPicker"
-        class="absolute bottom-full left-2 right-2 sm:right-auto sm:w-80 mb-1 z-20 rounded-xl bg-surface-elevated border border-white/10 shadow-xl overflow-hidden"
+        class="absolute bottom-full left-2 right-2 sm:right-auto sm:w-80 mb-1 z-20 rounded-lg bg-surface-elevated border border-white/10 shadow-xl overflow-hidden"
       >
         <div class="flex items-center gap-0.5 px-2 pt-2">
           <button
@@ -368,8 +368,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
             :key="cat.name"
             type="button"
             @click="activeEmojiCategory = i"
-            class="w-8 h-8 flex items-center justify-center text-base rounded-lg transition-colors"
-            :class="activeEmojiCategory === i ? 'bg-white/15' : 'hover:bg-white/10 opacity-60'"
+            class="w-8 h-8 flex items-center justify-center text-base rounded-full transition-colors"
+            :class="activeEmojiCategory === i ? 'bg-white text-black' : 'bg-surface-highlight text-white hover:bg-surface-elevated'"
             :title="cat.name"
           >{{ cat.icon }}</button>
         </div>
@@ -382,7 +382,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
                 :key="`r-${emoji}`"
                 type="button"
                 @click="insertEmoji(emoji)"
-                class="w-9 h-9 flex items-center justify-center text-xl hover:bg-white/10 rounded-lg transition-colors"
+                class="w-9 h-9 flex items-center justify-center text-xl hover:bg-surface-highlight rounded-lg transition-colors"
               >{{ emoji }}</button>
             </div>
             <p class="text-[10px] text-text-subdued uppercase tracking-wider px-1 pb-1">{{ EMOJI_CATEGORIES[activeEmojiCategory].name }}</p>
@@ -393,7 +393,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
               :key="emoji"
               type="button"
               @click="insertEmoji(emoji)"
-              class="w-9 h-9 flex items-center justify-center text-xl hover:bg-white/10 rounded-lg transition-colors"
+              class="w-9 h-9 flex items-center justify-center text-xl hover:bg-surface-highlight rounded-lg transition-colors"
             >{{ emoji }}</button>
           </div>
         </div>
@@ -402,7 +402,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
       <!-- GIF picker panel -->
       <div
         v-if="showGifPicker"
-        class="absolute bottom-full left-2 right-2 mb-1 z-20 rounded-xl bg-surface-elevated border border-white/10 shadow-xl overflow-hidden"
+        class="absolute bottom-full left-2 right-2 mb-1 z-20 rounded-lg bg-surface-elevated border border-white/10 shadow-xl overflow-hidden"
       >
         <div class="p-2 border-b border-white/10">
           <div class="relative">
@@ -412,7 +412,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
               @input="onGifQueryInput"
               type="text"
               placeholder="Search GIFs…"
-              class="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-text-subdued focus:outline-none focus:border-accent-primary/50"
+              class="w-full bg-surface-highlight rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-text-subdued focus:outline-none focus:ring-2 focus:ring-white transition-colors"
             />
           </div>
         </div>
@@ -445,8 +445,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
         <button
           type="button"
           @click="toggleEmojiPicker"
-          class="p-2.5 rounded-xl transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-          :class="showEmojiPicker ? 'bg-white/15 text-white' : 'text-text-subdued hover:text-white/90 hover:bg-white/10'"
+          class="p-2.5 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          :class="showEmojiPicker ? 'bg-surface-highlight text-white' : 'text-text-subdued hover:text-white/90 hover:bg-surface-highlight'"
           aria-label="Emoji picker"
         >
           <Smile class="w-5 h-5" />
@@ -454,8 +454,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
         <button
           type="button"
           @click="toggleGifPicker"
-          class="p-2 rounded-xl text-[11px] font-bold tracking-wide transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-          :class="showGifPicker ? 'bg-white/15 text-white' : 'text-text-subdued hover:text-white/90 hover:bg-white/10'"
+          class="p-2 rounded-full text-[11px] font-bold tracking-wide transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          :class="showGifPicker ? 'bg-surface-highlight text-white' : 'text-text-subdued hover:text-white/90 hover:bg-surface-highlight'"
           aria-label="GIF picker"
         >GIF</button>
         <textarea
@@ -466,12 +466,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyGlobal))
           rows="1"
           maxlength="1000"
           placeholder="Send a message…"
-          class="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-text-subdued focus:outline-none focus:border-accent-primary/50 resize-none"
+          class="flex-1 bg-surface-highlight rounded-lg px-3 py-2.5 text-sm text-white placeholder-text-subdued focus:outline-none focus:ring-2 focus:ring-white transition-colors resize-none"
         ></textarea>
         <button
           type="submit"
           :disabled="!input.trim()"
-          class="p-2.5 bg-accent-primary text-black rounded-xl hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          class="p-2.5 bg-accent-primary text-black rounded-full hover:bg-accent-bright disabled:opacity-40 disabled:cursor-not-allowed transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           aria-label="Send message"
         >
           <Send class="w-4 h-4" />

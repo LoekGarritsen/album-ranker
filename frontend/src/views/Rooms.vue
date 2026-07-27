@@ -228,7 +228,7 @@ onUnmounted(() => {
       </div>
       <button
         @click="showCreateModal = true"
-        class="flex items-center gap-2 px-4 py-2 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors min-h-[44px]"
+        class="flex items-center gap-2 px-4 py-2 bg-accent-primary text-black font-bold rounded-full hover:bg-accent-bright transition-colors min-h-[44px]"
       >
         <Plus class="w-5 h-5" />
         <span class="hidden sm:inline">Create Room</span>
@@ -249,7 +249,7 @@ onUnmounted(() => {
       <button
         type="submit"
         :disabled="codeInput.trim().length < 4"
-        class="px-4 py-2 glass glass-hover rounded-xl text-sm min-h-[44px] disabled:opacity-40 disabled:cursor-not-allowed"
+        class="px-4 py-2 bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors text-sm min-h-[44px] disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Join
       </button>
@@ -277,7 +277,7 @@ onUnmounted(() => {
       <p class="text-text-subdued mb-6">Create a room to start listening with others</p>
       <button
         @click="showCreateModal = true"
-        class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
+        class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-bold rounded-full hover:bg-accent-bright transition-colors"
       >
         <Plus class="w-5 h-5" />
         Create Room
@@ -301,9 +301,9 @@ onUnmounted(() => {
             <img
               v-if="room.cover_url"
               :src="room.cover_url"
-              class="w-16 h-16 rounded-lg object-cover bg-white/10"
+              class="w-16 h-16 rounded-md object-cover bg-surface-highlight"
             />
-            <div v-else class="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center">
+            <div v-else class="w-16 h-16 rounded-md bg-surface-highlight flex items-center justify-center">
               <MessageCircle v-if="room.mode === 'hangout'" class="w-6 h-6 text-purple-400" />
               <Radio v-else class="w-6 h-6 text-text-subdued" />
             </div>
@@ -311,7 +311,7 @@ onUnmounted(() => {
               <Lock class="w-3 h-3 text-white/90" />
             </div>
             <!-- Loading overlay when joining -->
-            <div v-if="joining === room.code" class="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
+            <div v-if="joining === room.code" class="absolute inset-0 flex items-center justify-center bg-black/50 rounded-md">
               <Loader2 class="w-6 h-6 animate-spin text-accent-primary" />
             </div>
           </div>
@@ -340,7 +340,7 @@ onUnmounted(() => {
           <button
             v-if="isAdmin"
             @click="requestDeleteRoom(room, $event)"
-            class="p-2 text-text-subdued hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
+            class="p-2 text-text-subdued hover:text-red-400 hover:bg-surface-highlight rounded-lg transition-colors flex-shrink-0"
             title="Delete room"
             aria-label="Delete room"
           >
@@ -354,7 +354,7 @@ onUnmounted(() => {
     <ModalDialog v-if="showCreateModal" @close="closeCreateModal">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-heading font-semibold">Create Room</h2>
-          <button @click="closeCreateModal" class="p-1 hover:bg-white/10 rounded-lg" aria-label="Close">
+          <button @click="closeCreateModal" class="p-1 hover:bg-surface-highlight rounded-lg" aria-label="Close">
             <X class="w-5 h-5 text-text-subdued" />
           </button>
         </div>
@@ -366,10 +366,10 @@ onUnmounted(() => {
               <button
                 type="button"
                 @click="createForm.mode = 'listening'"
-                class="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors"
+                class="flex flex-col items-center gap-1.5 p-3 rounded-lg transition-colors"
                 :class="createForm.mode === 'listening'
-                  ? 'bg-accent-primary/15 border-accent-primary/60 text-accent-primary'
-                  : 'bg-white/5 border-white/10 text-text-subdued hover:bg-white/10'"
+                  ? 'bg-accent-primary/15 text-accent-primary'
+                  : 'bg-surface-highlight text-text-subdued hover:bg-surface-elevated'"
               >
                 <Radio class="w-5 h-5" />
                 <span class="text-sm font-medium">Listening</span>
@@ -380,10 +380,10 @@ onUnmounted(() => {
               <button
                 type="button"
                 @click="createForm.mode = 'hangout'"
-                class="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors"
+                class="flex flex-col items-center gap-1.5 p-3 rounded-lg transition-colors"
                 :class="createForm.mode === 'hangout'
-                  ? 'bg-purple-500/15 border-purple-400/60 text-purple-300'
-                  : 'bg-white/5 border-white/10 text-text-subdued hover:bg-white/10'"
+                  ? 'bg-purple-500/15 text-purple-300'
+                  : 'bg-surface-highlight text-text-subdued hover:bg-surface-elevated'"
               >
                 <MessageCircle class="w-5 h-5" />
                 <span class="text-sm font-medium">Hangout</span>

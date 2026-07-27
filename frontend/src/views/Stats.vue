@@ -123,7 +123,7 @@ onMounted(loadStats)
             <div class="w-6 sm:w-8 text-center text-text-subdued font-medium text-sm">{{ i + 1 }}</div>
             <img
               :src="track.cover_url || '/placeholder.svg'"
-              class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-white/10 flex-shrink-0"
+              class="w-8 h-8 sm:w-10 sm:h-10 rounded-md object-cover bg-surface-highlight flex-shrink-0"
             />
             <div class="flex-1 min-w-0">
               <p class="truncate font-medium text-sm sm:text-base">{{ track.name }}</p>
@@ -151,7 +151,7 @@ onMounted(loadStats)
           >
             <img
               :src="take.cover_url || '/placeholder.svg'"
-              class="w-10 h-10 sm:w-12 sm:h-12 rounded object-cover bg-white/10 flex-shrink-0"
+              class="w-10 h-10 sm:w-12 sm:h-12 rounded-md object-cover bg-surface-highlight flex-shrink-0"
             />
             <div class="flex-1 min-w-0">
               <p class="truncate font-medium text-sm sm:text-base">{{ take.track_name }}</p>

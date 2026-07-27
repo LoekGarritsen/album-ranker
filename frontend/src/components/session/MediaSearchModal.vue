@@ -78,7 +78,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
     aria-modal="true"
     aria-label="Search music"
   >
-    <div ref="container" class="glass w-full max-w-2xl rounded-2xl overflow-hidden">
+    <div ref="container" class="glass w-full max-w-2xl rounded-lg overflow-hidden">
       <div class="p-4 border-b border-white/10 flex items-center gap-4">
         <Loader2 v-if="searching" class="w-5 h-5 text-accent-primary animate-spin" />
         <Search v-else class="w-5 h-5 text-text-subdued" />
@@ -105,9 +105,9 @@ onUnmounted(() => clearTimeout(debounceTimer))
           <div
             v-for="f in favorites"
             :key="f.spotify_id"
-            class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-xl transition-colors"
+            class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-lg transition-colors"
           >
-            <img :src="f.image || '/placeholder.svg'" :alt="f.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
+            <img :src="f.image || '/placeholder.svg'" :alt="f.name" class="w-12 h-12 rounded-md object-cover bg-white/10 flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <p class="truncate text-sm font-medium">{{ f.name }}</p>
               <p class="truncate text-xs text-text-subdued">{{ f.artist }}<span v-if="f.type === 'album'"> · Album</span></p>
@@ -115,7 +115,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
             <div class="flex items-center gap-1 flex-shrink-0">
               <button
                 @click="toggleFavorite(f)"
-                class="p-2 rounded-lg text-pink-400 hover:bg-white/10 transition-colors"
+                class="p-2 rounded-full text-pink-400 hover:bg-surface-highlight transition-colors"
                 :aria-label="`Remove ${f.name} from favorites`"
                 title="Remove favorite"
               >
@@ -123,7 +123,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
               </button>
               <button
                 @click="emit('queue', f)"
-                class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
+                class="p-2 rounded-full text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors"
                 :aria-label="`Add ${f.name} to queue`"
                 title="Add to queue"
               >
@@ -131,7 +131,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
               </button>
               <button
                 @click="emit('select', f)"
-                class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
+                class="p-2 rounded-full text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors"
                 :aria-label="`Play ${f.name} now`"
                 title="Play now"
               >
@@ -155,9 +155,9 @@ onUnmounted(() => clearTimeout(debounceTimer))
             <div
               v-for="t in results.tracks"
               :key="t.spotify_id"
-              class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-xl transition-colors"
+              class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-lg transition-colors"
             >
-              <img :src="t.image || '/placeholder.svg'" :alt="t.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
+              <img :src="t.image || '/placeholder.svg'" :alt="t.name" class="w-12 h-12 rounded-md object-cover bg-white/10 flex-shrink-0" />
               <div class="flex-1 min-w-0">
                 <p class="truncate text-sm font-medium">{{ t.name }}</p>
                 <p class="truncate text-xs text-text-subdued">{{ t.artist }} · {{ t.album_name }}</p>
@@ -166,7 +166,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
               <div class="flex items-center gap-1 flex-shrink-0">
                 <button
                   @click="toggleFavorite(withType('track', t))"
-                  class="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-full hover:bg-surface-highlight transition-colors"
                   :class="isFavorite(t.spotify_id) ? 'text-pink-400' : 'text-text-subdued hover:text-pink-400'"
                   :aria-label="isFavorite(t.spotify_id) ? `Remove ${t.name} from favorites` : `Add ${t.name} to favorites`"
                   :title="isFavorite(t.spotify_id) ? 'Remove favorite' : 'Favorite'"
@@ -175,7 +175,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
                 </button>
                 <button
                   @click="emit('queue', withType('track', t))"
-                  class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-full text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors"
                   :aria-label="`Add ${t.name} to queue`"
                   title="Add to queue"
                 >
@@ -183,7 +183,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
                 </button>
                 <button
                   @click="emit('select', withType('track', t))"
-                  class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-full text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors"
                   :aria-label="`Play ${t.name} now`"
                   title="Play now"
                 >
@@ -201,9 +201,9 @@ onUnmounted(() => clearTimeout(debounceTimer))
             <div
               v-for="a in results.albums"
               :key="a.spotify_id"
-              class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-xl transition-colors"
+              class="group flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-lg transition-colors"
             >
-              <img :src="a.image || '/placeholder.svg'" :alt="a.name" class="w-12 h-12 rounded-lg object-cover bg-white/10 flex-shrink-0" />
+              <img :src="a.image || '/placeholder.svg'" :alt="a.name" class="w-12 h-12 rounded-md object-cover bg-white/10 flex-shrink-0" />
               <div class="flex-1 min-w-0">
                 <p class="truncate text-sm font-medium">{{ a.name }}</p>
                 <p class="truncate text-xs text-text-subdued">{{ a.artist }}</p>
@@ -212,7 +212,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
               <div class="flex items-center gap-1 flex-shrink-0">
                 <button
                   @click="toggleFavorite(withType('album', a))"
-                  class="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-full hover:bg-surface-highlight transition-colors"
                   :class="isFavorite(a.spotify_id) ? 'text-pink-400' : 'text-text-subdued hover:text-pink-400'"
                   :aria-label="isFavorite(a.spotify_id) ? `Remove ${a.name} from favorites` : `Add ${a.name} to favorites`"
                   :title="isFavorite(a.spotify_id) ? 'Remove favorite' : 'Favorite'"
@@ -221,7 +221,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
                 </button>
                 <button
                   @click="emit('queue', withType('album', a))"
-                  class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-full text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors"
                   :aria-label="`Add ${a.name} to queue`"
                   title="Add to queue"
                 >
@@ -229,7 +229,7 @@ onUnmounted(() => clearTimeout(debounceTimer))
                 </button>
                 <button
                   @click="emit('select', withType('album', a))"
-                  class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors"
+                  class="p-2 rounded-full text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors"
                   :aria-label="`Play ${a.name} now`"
                   title="Play now"
                 >

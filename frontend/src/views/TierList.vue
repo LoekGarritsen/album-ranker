@@ -62,7 +62,7 @@ watch(selectedUserId, loadTierList)
 
       <select
         v-model="selectedUserId"
-        class="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-accent-primary"
+        class="px-4 py-2 bg-surface-highlight border border-transparent rounded-lg text-white focus:outline-none focus:border-accent-primary"
       >
         <option :value="null">Everyone (Average)</option>
         <option v-for="user in users" :key="user.id" :value="user.id">
@@ -103,11 +103,11 @@ watch(selectedUserId, loadTierList)
               <img
                 :src="album.cover_url || '/placeholder.svg'"
                 :alt="album.name"
-                class="w-12 h-12 sm:w-16 sm:h-16 rounded-lg object-cover bg-white/10 cursor-pointer transition-transform sm:hover:scale-110"
+                class="w-12 h-12 sm:w-16 sm:h-16 rounded-md object-cover bg-surface-highlight cursor-pointer transition-transform sm:hover:scale-110"
               />
               <!-- Tooltip - desktop only -->
               <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 hidden sm:block">
-                <div class="bg-bg-primary border border-white/20 rounded-lg p-2 text-xs whitespace-nowrap shadow-xl">
+                <div class="bg-surface-elevated rounded-lg p-2 text-xs whitespace-nowrap shadow-xl">
                   <p class="font-medium">{{ album.name }}</p>
                   <p class="text-text-subdued">{{ album.artist }}</p>
                   <p v-if="album.score" class="text-accent-primary mt-1">{{ album.score }}</p>

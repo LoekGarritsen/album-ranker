@@ -47,7 +47,7 @@ onMounted(loadResults)
     <div class="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8">
       <button
         @click="router.push('/')"
-        class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+        class="p-2 hover:bg-surface-highlight rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
       >
         <ArrowLeft class="w-5 h-5" />
       </button>
@@ -90,7 +90,7 @@ onMounted(loadResults)
           <img
             :src="item.album.cover_url || '/placeholder.svg'"
             :alt="item.album.name"
-            class="w-10 h-10 sm:w-14 sm:h-14 rounded-lg object-cover bg-white/10 flex-shrink-0"
+            class="w-10 h-10 sm:w-14 sm:h-14 rounded-md object-cover bg-surface-highlight flex-shrink-0"
           />
 
           <!-- Album info -->

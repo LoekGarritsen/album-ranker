@@ -566,9 +566,9 @@ onUnmounted(() => {
             <img
               v-if="headerImage"
               :src="headerImage"
-              class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl object-cover bg-white/10"
+              class="w-24 h-24 sm:w-32 sm:h-32 rounded-lg object-cover bg-surface-highlight"
             />
-            <div v-else class="w-24 h-24 sm:w-32 sm:h-32 rounded-xl bg-white/10 flex items-center justify-center">
+            <div v-else class="w-24 h-24 sm:w-32 sm:h-32 rounded-lg bg-surface-highlight flex items-center justify-center">
               <component :is="isHangout ? MessageCircle : Disc3" class="w-12 h-12 text-text-subdued" />
             </div>
           </div>
@@ -595,12 +595,12 @@ onUnmounted(() => {
 
             <!-- Code + mode-specific actions -->
             <div class="flex items-center justify-center sm:justify-start gap-3 flex-wrap">
-              <div class="px-4 py-2 bg-white/10 rounded-lg font-mono text-base sm:text-lg tracking-wider">
+              <div class="px-4 py-2 bg-surface-highlight rounded-lg font-mono text-base sm:text-lg tracking-wider">
                 {{ sessionCode }}
               </div>
               <button
                 @click="copyCode"
-                class="p-2 glass glass-hover rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center"
+                class="p-2 bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
                 aria-label="Copy room code"
               >
                 <Check v-if="copied" class="w-5 h-5 text-green-400" />
@@ -610,7 +610,7 @@ onUnmounted(() => {
               <template v-if="isHangout">
                 <button
                   @click="showMediaSearch = true"
-                  class="flex items-center gap-2 px-4 py-2 bg-accent-primary text-black font-medium rounded-lg text-sm min-h-[44px] hover:bg-accent-primary/90 transition-colors"
+                  class="flex items-center gap-2 px-4 py-2 bg-accent-primary text-black font-bold rounded-full text-sm min-h-[44px] hover:bg-accent-bright transition-colors"
                 >
                   <Search class="w-4 h-4" />
                   Search music
@@ -619,7 +619,7 @@ onUnmounted(() => {
                   v-if="canSwitchMode"
                   @click="switchMode"
                   :disabled="switchingMode"
-                  class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px] disabled:opacity-50"
+                  class="flex items-center gap-2 px-3 py-2 bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors text-sm min-h-[44px] disabled:opacity-50"
                   title="Switch this room to listening mode"
                 >
                   <Radio class="w-4 h-4" />
@@ -630,7 +630,7 @@ onUnmounted(() => {
                 <button
                   v-if="album"
                   @click="openAlbumRating"
-                  class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px]"
+                  class="flex items-center gap-2 px-3 py-2 bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors text-sm min-h-[44px]"
                   :class="myAlbumRanking ? 'text-yellow-400' : ''"
                 >
                   <Star class="w-4 h-4" :class="myAlbumRanking ? 'fill-yellow-400' : ''" />
@@ -638,7 +638,7 @@ onUnmounted(() => {
                 </button>
                 <button
                   @click="showAlbumPicker = true"
-                  class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px]"
+                  class="flex items-center gap-2 px-3 py-2 bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors text-sm min-h-[44px]"
                 >
                   <Disc3 class="w-4 h-4" />
                   {{ album ? 'Change Album' : 'Select Album' }}
@@ -647,7 +647,7 @@ onUnmounted(() => {
                   v-if="canSwitchMode"
                   @click="switchMode"
                   :disabled="switchingMode"
-                  class="flex items-center gap-2 px-3 py-2 glass glass-hover rounded-lg text-sm min-h-[44px] disabled:opacity-50"
+                  class="flex items-center gap-2 px-3 py-2 bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors text-sm min-h-[44px] disabled:opacity-50"
                   title="Switch this room to hangout mode"
                 >
                   <MessageCircle class="w-4 h-4" />
@@ -705,11 +705,11 @@ onUnmounted(() => {
           <!-- Spotify status (compact) -->
           <div class="glass p-3 flex items-center justify-between gap-3">
             <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 bg-[#1DB954] rounded-full flex items-center justify-center flex-shrink-0" :class="{ 'animate-pulse': spotifyConnected && !spotifyReady }">
+              <div class="w-8 h-8 bg-accent-primary rounded-full flex items-center justify-center flex-shrink-0" :class="{ 'animate-pulse': spotifyConnected && !spotifyReady }">
                 <Music class="w-4 h-4 text-black" />
               </div>
               <div class="min-w-0">
-                <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-[#1DB954]' : ''">
+                <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-accent-primary' : ''">
                   {{ spotifyReady ? 'Spotify ready' : spotifyConnected ? (spotifyError || 'Starting player…') : 'Connect Spotify to hear it' }}
                 </p>
               </div>
@@ -717,7 +717,7 @@ onUnmounted(() => {
             <button
               @click="handleSpotifyConnect"
               class="px-3 py-1.5 rounded-full text-xs font-medium min-h-[36px] flex-shrink-0 transition-colors"
-              :class="spotifyConnected ? 'border border-white/30 text-white/90 hover:bg-white/10' : 'bg-[#1DB954] text-black hover:bg-[#1ed760]'"
+              :class="spotifyConnected ? 'border border-white/30 text-white/90 hover:bg-surface-highlight' : 'bg-accent-primary text-black hover:bg-accent-bright'"
             >
               {{ spotifyConnected ? 'Disconnect' : 'Connect' }}
             </button>
@@ -735,7 +735,7 @@ onUnmounted(() => {
                 v-for="listener in listeners"
                 :key="listener.user_id"
                 class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
-                :class="listener.user_id === currentUser?.id ? 'bg-accent-primary/20 border border-accent-primary/50' : 'bg-white/10'"
+                :class="listener.user_id === currentUser?.id ? 'bg-accent-primary/20 border border-accent-primary/50' : 'bg-surface-highlight'"
               >
                 <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                 <span>{{ listener.user_name }}</span>
@@ -769,7 +769,7 @@ onUnmounted(() => {
             <p class="text-text-subdued mb-6">Choose an album from the library to rank together</p>
             <button
               @click="showAlbumPicker = true"
-              class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
+              class="inline-flex items-center gap-2 px-6 py-3 bg-accent-primary text-black font-bold rounded-full hover:bg-accent-bright transition-colors"
             >
               <Disc3 class="w-5 h-5" />
               Select Album
@@ -801,8 +801,8 @@ onUnmounted(() => {
                   @click="mainTab = 'tracks'"
                   role="tab"
                   :aria-selected="mainTab === 'tracks'"
-                  class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
-                  :class="mainTab === 'tracks' ? 'bg-white/10 text-white' : 'text-text-subdued hover:text-white hover:bg-white/5'"
+                  class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors min-h-[44px]"
+                  :class="mainTab === 'tracks' ? 'bg-white text-black' : 'bg-surface-highlight text-white hover:bg-surface-elevated'"
                 >
                   <ListMusic class="w-4 h-4" />
                   Tracks
@@ -811,8 +811,8 @@ onUnmounted(() => {
                   @click="mainTab = 'stats'"
                   role="tab"
                   :aria-selected="mainTab === 'stats'"
-                  class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
-                  :class="mainTab === 'stats' ? 'bg-white/10 text-white' : 'text-text-subdued hover:text-white hover:bg-white/5'"
+                  class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors min-h-[44px]"
+                  :class="mainTab === 'stats' ? 'bg-white text-black' : 'bg-surface-highlight text-white hover:bg-surface-elevated'"
                 >
                   <BarChart3 class="w-4 h-4" />
                   Stats
@@ -821,8 +821,8 @@ onUnmounted(() => {
                   @click="mainTab = 'lyrics'"
                   role="tab"
                   :aria-selected="mainTab === 'lyrics'"
-                  class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]"
-                  :class="mainTab === 'lyrics' ? 'bg-white/10 text-white' : 'text-text-subdued hover:text-white hover:bg-white/5'"
+                  class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors min-h-[44px]"
+                  :class="mainTab === 'lyrics' ? 'bg-white text-black' : 'bg-surface-highlight text-white hover:bg-surface-elevated'"
                 >
                   <Mic class="w-4 h-4" />
                   Lyrics
@@ -860,11 +860,11 @@ onUnmounted(() => {
           <!-- Spotify status (compact) -->
           <div v-if="hasAlbum" class="glass p-3 flex items-center justify-between gap-3">
             <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 bg-[#1DB954] rounded-full flex items-center justify-center flex-shrink-0" :class="{ 'animate-pulse': spotifyConnected && !spotifyReady }">
+              <div class="w-8 h-8 bg-accent-primary rounded-full flex items-center justify-center flex-shrink-0" :class="{ 'animate-pulse': spotifyConnected && !spotifyReady }">
                 <Music class="w-4 h-4 text-black" />
               </div>
               <div class="min-w-0">
-                <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-[#1DB954]' : ''">
+                <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-accent-primary' : ''">
                   {{ spotifyReady ? 'Spotify ready' : spotifyConnected ? (spotifyError || 'Starting player…') : 'Connect Spotify' }}
                 </p>
                 <p v-if="!spotifyConnected" class="text-xs text-text-subdued">Play in sync (Premium)</p>
@@ -873,7 +873,7 @@ onUnmounted(() => {
             <button
               @click="handleSpotifyConnect"
               class="px-3 py-1.5 rounded-full text-xs font-medium min-h-[36px] flex-shrink-0 transition-colors flex items-center gap-1.5"
-              :class="spotifyConnected ? 'border border-white/30 text-white/90 hover:bg-white/10' : 'bg-[#1DB954] text-black hover:bg-[#1ed760]'"
+              :class="spotifyConnected ? 'border border-white/30 text-white/90 hover:bg-surface-highlight' : 'bg-accent-primary text-black hover:bg-accent-bright'"
             >
               <Unplug v-if="spotifyConnected" class="w-3.5 h-3.5" />
               {{ spotifyConnected ? 'Disconnect' : 'Connect' }}
@@ -892,7 +892,7 @@ onUnmounted(() => {
                 v-for="listener in listeners"
                 :key="listener.user_id"
                 class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
-                :class="listener.user_id === currentUser?.id ? 'bg-accent-primary/20 border border-accent-primary/50' : 'bg-white/10'"
+                :class="listener.user_id === currentUser?.id ? 'bg-accent-primary/20 border border-accent-primary/50' : 'bg-surface-highlight'"
               >
                 <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                 <span>{{ listener.user_name }}</span>

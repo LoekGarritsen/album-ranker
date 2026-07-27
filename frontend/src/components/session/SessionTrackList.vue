@@ -128,7 +128,7 @@ function formatDuration(ms) {
         </div>
         <button
           @click.stop="emit('detail', item.track)"
-          class="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
+          class="p-2 hover:bg-surface-highlight rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
           title="Track info"
           aria-label="Track info"
         >
@@ -136,7 +136,7 @@ function formatDuration(ms) {
         </button>
         <button
           @click.stop="emit('rate', item.track)"
-          class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
+          class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-surface-highlight text-white rounded-full hover:bg-surface-elevated transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
           :aria-label="getUserScore(item.track) != null ? 'Update your rating' : 'Rate this track'"
         >
           <Star class="w-3 h-3" :class="getUserScore(item.track) != null ? 'fill-yellow-400 text-yellow-400' : ''" />

@@ -162,7 +162,7 @@ const hasAnyRatings = computed(() =>
       <button
         v-if="myRatedCount === tracks.length && tracks.length > 0 && !myAlbumRanking"
         @click="emit('rate-album')"
-        class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent-primary text-black font-medium rounded-xl hover:bg-accent-primary/90 transition-colors"
+        class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent-primary text-black font-bold rounded-full hover:bg-accent-bright transition-colors"
       >
         <Star class="w-4 h-4" />
         All tracks rated — rate the album!

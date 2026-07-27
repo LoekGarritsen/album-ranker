@@ -64,7 +64,7 @@ function getScoreColor(score) {
           v-if="showSync"
           @click="emit('sync')"
           :disabled="isSyncing"
-          class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          class="p-2 hover:bg-surface-highlight rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           :class="{ 'animate-spin': isSyncing }"
           aria-label="Sync with room"
           title="Sync with room"
@@ -73,22 +73,22 @@ function getScoreColor(score) {
         </button>
         <button
           @click="emit('prev')"
-          class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          class="p-2 hover:bg-surface-highlight rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           aria-label="Previous track"
         >
           <SkipBack class="w-5 h-5" />
         </button>
         <button
           @click="emit('toggle')"
-          class="p-3 bg-accent-primary text-black rounded-full hover:bg-accent-primary/90 transition-colors flex items-center justify-center"
+          class="p-3 bg-white text-black rounded-full hover:scale-[1.06] transition-transform flex items-center justify-center"
           :aria-label="isPlaying ? 'Pause' : 'Play'"
         >
-          <Pause v-if="isPlaying" class="w-6 h-6" />
-          <Play v-else class="w-6 h-6 ml-0.5" />
+          <Pause v-if="isPlaying" class="w-6 h-6 fill-current" />
+          <Play v-else class="w-6 h-6 ml-0.5 fill-current" />
         </button>
         <button
           @click="emit('next')"
-          class="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          class="p-2 hover:bg-surface-highlight rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           aria-label="Next track"
         >
           <SkipForward class="w-5 h-5" />
@@ -119,7 +119,7 @@ function getScoreColor(score) {
         </span>
         <button
           @click="emit('open-rating')"
-          class="flex items-center gap-1.5 px-2 py-1 text-xs text-text-subdued hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-text-subdued hover:text-white hover:bg-surface-highlight rounded-full transition-colors"
           aria-label="Fine-tune rating and add comment"
         >
           <SlidersHorizontal class="w-3.5 h-3.5" />
@@ -134,7 +134,7 @@ function getScoreColor(score) {
           class="py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors"
           :class="myScore != null && Math.round(myScore) === n
             ? 'bg-accent-primary text-black'
-            : 'bg-white/5 hover:bg-white/15 text-white/90'"
+            : 'bg-surface-highlight hover:bg-surface-elevated text-white/90'"
           :aria-label="`Rate ${n}`"
         >
           {{ n }}

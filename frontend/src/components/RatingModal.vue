@@ -74,12 +74,12 @@ const displayScore = computed(() => {
     aria-modal="true"
     aria-label="Rate"
   >
-    <div ref="container" class="bg-bg-secondary border border-white/10 w-full max-w-md rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl">
+    <div ref="container" class="bg-bg-secondary w-full max-w-md rounded-t-lg sm:rounded-lg overflow-hidden shadow-2xl">
       <!-- Header -->
       <div class="relative p-6 pb-4 border-b border-white/10">
         <button
           @click="emit('close')"
-          class="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-lg transition-colors"
+          class="absolute top-4 right-4 p-2 hover:bg-surface-highlight rounded-lg transition-colors"
         >
           <X class="w-5 h-5" />
         </button>
@@ -88,7 +88,7 @@ const displayScore = computed(() => {
           <img
             :src="album.cover_url || '/placeholder.svg'"
             :alt="album.name"
-            class="w-16 h-16 rounded-lg object-cover bg-white/10"
+            class="w-16 h-16 rounded-md object-cover bg-white/10"
           />
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 text-xs text-text-subdued mb-1">
@@ -124,7 +124,7 @@ const displayScore = computed(() => {
             class="py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors"
             :class="Math.round(parseFloat(score)) === n
               ? 'bg-accent-primary text-black'
-              : 'bg-white/5 hover:bg-white/15 text-white/90'"
+              : 'bg-surface-highlight hover:bg-surface-elevated text-white/90'"
           >
             {{ n }}
           </button>

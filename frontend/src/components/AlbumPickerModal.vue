@@ -44,7 +44,7 @@ onMounted(async () => {
     aria-modal="true"
     aria-label="Select album"
   >
-    <div ref="container" class="glass w-full max-w-2xl rounded-2xl overflow-hidden">
+    <div ref="container" class="glass w-full max-w-2xl rounded-lg overflow-hidden">
       <div class="p-4 border-b border-white/10 flex items-center gap-4">
         <Search class="w-5 h-5 text-text-subdued" />
         <input
@@ -70,19 +70,19 @@ onMounted(async () => {
             :key="a.id"
             @click="emit('select', a)"
             :disabled="busy"
-            class="w-full text-left flex items-center gap-4 p-3 hover:bg-white/5 rounded-xl transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:bg-white/10"
+            class="w-full text-left flex items-center gap-4 p-3 hover:bg-white/5 rounded-lg transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:bg-white/10"
           >
             <img
               :src="a.cover_url || '/placeholder.svg'"
               :alt="a.name"
-              class="w-14 h-14 rounded-lg object-cover bg-white/10"
+              class="w-14 h-14 rounded-md object-cover bg-white/10"
             />
             <div class="flex-1 min-w-0">
               <h3 class="font-heading font-medium truncate">{{ a.name }}</h3>
               <p class="text-sm text-text-subdued truncate">{{ a.artist }}</p>
               <p class="text-xs text-text-subdued">{{ a.tracks?.length || 0 }} tracks</p>
             </div>
-            <div v-if="currentAlbumId === a.id" class="px-3 py-1 bg-accent-primary/20 text-accent-primary rounded-lg text-sm flex-shrink-0">
+            <div v-if="currentAlbumId === a.id" class="px-3 py-1 bg-accent-primary/20 text-accent-primary rounded-full text-sm flex-shrink-0">
               Current
             </div>
           </button>

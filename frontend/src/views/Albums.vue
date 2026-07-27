@@ -292,7 +292,7 @@ onMounted(loadAlbums)
           <img
             :src="album.cover_url || '/placeholder.svg'"
             :alt="album.name"
-            class="w-14 h-14 sm:w-16 sm:h-16 rounded-lg object-cover bg-white/10 flex-shrink-0"
+            class="w-14 h-14 sm:w-16 sm:h-16 rounded-md object-cover bg-surface-highlight flex-shrink-0"
           />
 
           <div class="flex-1 min-w-0">
@@ -322,7 +322,7 @@ onMounted(loadAlbums)
           <button
             v-if="isAdmin"
             @click.stop="removeAlbum(album.id)"
-            class="hidden sm:flex p-2 text-text-subdued hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] items-center justify-center"
+            class="hidden sm:flex p-2 text-text-subdued hover:text-red-400 hover:bg-surface-highlight rounded-lg transition-colors min-h-[44px] min-w-[44px] items-center justify-center"
           >
             <Trash2 class="w-4 h-4" />
           </button>
@@ -371,7 +371,7 @@ onMounted(loadAlbums)
                 </div>
                 <button
                   @click.stop="openTrackRating(item.track, album)"
-                  class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
+                  class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-surface-highlight text-white rounded-full hover:bg-surface-elevated transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
                 >
                   <Star class="w-3 h-3" />
                   <span class="hidden sm:inline">{{ getUserRanking(item.track.rankings)?.score || 'Rate' }}</span>
@@ -411,7 +411,7 @@ onMounted(loadAlbums)
               </div>
               <button
                 @click.stop="openTrackRating(track, album)"
-                class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
+                class="flex items-center gap-1 px-2 sm:px-3 py-2 bg-surface-highlight text-white rounded-full hover:bg-surface-elevated transition-colors text-sm min-h-[44px] min-w-[44px] justify-center flex-shrink-0"
               >
                 <Star class="w-3 h-3" />
                 <span class="hidden sm:inline">{{ getUserRanking(track.rankings)?.score || 'Rate' }}</span>
@@ -428,7 +428,7 @@ onMounted(loadAlbums)
       class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-20 bg-black/70 overflow-y-auto"
       @click.self="closeSearch"
     >
-      <div class="glass w-full max-w-2xl rounded-2xl overflow-hidden">
+      <div class="glass w-full max-w-2xl rounded-lg overflow-hidden">
         <div class="p-4 border-b border-white/10 flex items-center gap-4">
           <SearchIcon class="w-5 h-5 text-text-subdued" />
           <input
@@ -440,7 +440,7 @@ onMounted(loadAlbums)
             autofocus
           />
           <Loader2 v-if="searching" class="w-5 h-5 text-text-subdued animate-spin" />
-          <button @click="closeSearch" class="p-1 hover:bg-white/10 rounded-lg">
+          <button @click="closeSearch" class="p-1 hover:bg-surface-highlight rounded-lg">
             <X class="w-5 h-5 text-text-subdued" />
           </button>
         </div>
@@ -450,12 +450,12 @@ onMounted(loadAlbums)
             <div
               v-for="album in searchResults"
               :key="album.spotify_id"
-              class="flex items-center gap-4 p-3 hover:bg-white/5 rounded-xl transition-colors"
+              class="flex items-center gap-4 p-3 hover:bg-white/5 rounded-lg transition-colors"
             >
               <img
                 :src="album.cover_url || '/placeholder.svg'"
                 :alt="album.name"
-                class="w-14 h-14 rounded-lg object-cover bg-white/10"
+                class="w-14 h-14 rounded-md object-cover bg-surface-highlight"
               />
 
               <div class="flex-1 min-w-0">
@@ -467,10 +467,10 @@ onMounted(loadAlbums)
               <button
                 @click="addAlbum(album)"
                 :disabled="addedIds.has(album.spotify_id) || addingId === album.spotify_id"
-                class="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all text-sm"
+                class="flex items-center gap-2 px-4 py-2 rounded-full font-bold transition-colors text-sm"
                 :class="addedIds.has(album.spotify_id)
                   ? 'bg-accent-primary/20 text-accent-primary cursor-default'
-                  : 'bg-accent-primary text-black hover:bg-accent-primary/90 disabled:opacity-50'"
+                  : 'bg-accent-primary text-black hover:bg-accent-bright disabled:opacity-50'"
               >
                 <Loader2 v-if="addingId === album.spotify_id" class="w-4 h-4 animate-spin" />
                 <Check v-else-if="addedIds.has(album.spotify_id)" class="w-4 h-4" />
@@ -497,13 +497,13 @@ onMounted(loadAlbums)
       class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-20 bg-black/70 overflow-y-auto"
       @click.self="closeNewReleases"
     >
-      <div class="bg-bg-secondary border border-white/10 w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl">
+      <div class="bg-bg-secondary w-full max-w-2xl rounded-lg overflow-hidden shadow-2xl">
         <div class="p-4 border-b border-white/10 flex items-center justify-between">
           <div class="flex items-center gap-3">
             <Sparkles class="w-5 h-5 text-accent-primary" />
             <h2 class="font-heading font-semibold text-lg">New Releases</h2>
           </div>
-          <button @click="closeNewReleases" class="p-1 hover:bg-white/10 rounded-lg">
+          <button @click="closeNewReleases" class="p-1 hover:bg-surface-highlight rounded-lg">
             <X class="w-5 h-5 text-text-subdued" />
           </button>
         </div>
@@ -518,12 +518,12 @@ onMounted(loadAlbums)
             <div
               v-for="album in newReleases"
               :key="album.spotify_id"
-              class="flex items-center gap-4 p-3 hover:bg-white/5 rounded-xl transition-colors"
+              class="flex items-center gap-4 p-3 hover:bg-white/5 rounded-lg transition-colors"
             >
               <img
                 :src="album.cover_url || '/placeholder.svg'"
                 :alt="album.name"
-                class="w-14 h-14 rounded-lg object-cover bg-white/10"
+                class="w-14 h-14 rounded-md object-cover bg-surface-highlight"
               />
 
               <div class="flex-1 min-w-0">
@@ -540,7 +540,7 @@ onMounted(loadAlbums)
                 v-else-if="isAdmin"
                 @click="addAlbum(album)"
                 :disabled="addingId === album.spotify_id"
-                class="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all text-sm bg-accent-primary text-black hover:bg-accent-primary/90 disabled:opacity-50"
+                class="flex items-center gap-2 px-4 py-2 rounded-full font-bold transition-colors text-sm bg-accent-primary text-black hover:bg-accent-bright disabled:opacity-50"
               >
                 <Loader2 v-if="addingId === album.spotify_id" class="w-4 h-4 animate-spin" />
                 <Plus v-else class="w-4 h-4" />

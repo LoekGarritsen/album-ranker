@@ -63,7 +63,7 @@ function formatDuration(ms) {
         <button
           v-if="queue.length"
           @click="emit('skip')"
-          class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+          class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
           title="Skip to next in queue"
           aria-label="Skip to next in queue"
         >
@@ -71,7 +71,7 @@ function formatDuration(ms) {
         </button>
         <button
           @click="emit('add')"
-          class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-white/10 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+          class="p-2 rounded-lg text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
           title="Add to queue"
           aria-label="Add to queue"
         >
@@ -86,7 +86,7 @@ function formatDuration(ms) {
       </p>
       <button
         @click="emit('add')"
-        class="mt-3 inline-flex items-center gap-2 px-4 py-2 glass glass-hover rounded-lg text-sm min-h-[40px]"
+        class="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors text-sm min-h-[40px]"
       >
         <Plus class="w-4 h-4" />
         Add a song
@@ -100,7 +100,7 @@ function formatDuration(ms) {
         class="flex items-center gap-2 p-3 transition-colors"
         :class="{
           'opacity-40': dragId === item.id,
-          'bg-white/10': dragOverIdx === idx && dragId !== item.id
+          'bg-surface-highlight': dragOverIdx === idx && dragId !== item.id
         }"
         draggable="true"
         @dragstart="onDragStart(item)"
@@ -115,9 +115,9 @@ function formatDuration(ms) {
             v-if="item.image"
             :src="item.image"
             :alt="item.name"
-            class="w-10 h-10 rounded-lg object-cover bg-white/10"
+            class="w-10 h-10 rounded-md object-cover bg-surface-highlight"
           />
-          <div v-else class="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
+          <div v-else class="w-10 h-10 rounded-md bg-surface-highlight flex items-center justify-center">
             <component :is="item.type === 'album' ? Disc3 : Music" class="w-4 h-4 text-text-subdued" />
           </div>
         </div>
@@ -135,7 +135,7 @@ function formatDuration(ms) {
           <button
             @click="emit('move', item.id, idx - 1)"
             :disabled="idx === 0"
-            class="p-0.5 rounded text-text-subdued hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            class="p-0.5 rounded text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors disabled:opacity-30 disabled:pointer-events-none"
             :aria-label="`Move ${item.name} up`"
           >
             <ChevronUp class="w-4 h-4" />
@@ -143,7 +143,7 @@ function formatDuration(ms) {
           <button
             @click="emit('move', item.id, idx + 1)"
             :disabled="idx === queue.length - 1"
-            class="p-0.5 rounded text-text-subdued hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            class="p-0.5 rounded text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors disabled:opacity-30 disabled:pointer-events-none"
             :aria-label="`Move ${item.name} down`"
           >
             <ChevronDown class="w-4 h-4" />
@@ -155,7 +155,7 @@ function formatDuration(ms) {
           <button
             @click="emit('vote', item.id, 'up')"
             class="flex items-center gap-1 px-1.5 py-1 rounded-lg text-xs transition-colors"
-            :class="myVote(item) === 1 ? 'text-green-400 bg-green-400/10' : 'text-text-subdued hover:text-green-400 hover:bg-white/10'"
+            :class="myVote(item) === 1 ? 'text-green-400 bg-green-400/10' : 'text-text-subdued hover:text-green-400 hover:bg-surface-highlight'"
             :aria-label="`Like ${item.name}`"
             :aria-pressed="myVote(item) === 1"
           >
@@ -165,7 +165,7 @@ function formatDuration(ms) {
           <button
             @click="emit('vote', item.id, 'down')"
             class="flex items-center gap-1 px-1.5 py-1 rounded-lg text-xs transition-colors"
-            :class="myVote(item) === -1 ? 'text-red-400 bg-red-400/10' : 'text-text-subdued hover:text-red-400 hover:bg-white/10'"
+            :class="myVote(item) === -1 ? 'text-red-400 bg-red-400/10' : 'text-text-subdued hover:text-red-400 hover:bg-surface-highlight'"
             :aria-label="`Dislike ${item.name}`"
             :aria-pressed="myVote(item) === -1"
           >
@@ -177,7 +177,7 @@ function formatDuration(ms) {
         <button
           v-if="canRemove(item)"
           @click="emit('remove', item.id)"
-          class="p-1.5 rounded-lg text-text-subdued hover:text-red-400 hover:bg-white/10 transition-colors flex-shrink-0"
+          class="p-1.5 rounded-lg text-text-subdued hover:text-red-400 hover:bg-surface-highlight transition-colors flex-shrink-0"
           :title="`Remove ${item.name}`"
           :aria-label="`Remove ${item.name} from queue`"
         >

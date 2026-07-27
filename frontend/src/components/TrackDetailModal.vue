@@ -69,14 +69,14 @@ onMounted(loadTrack)
     aria-modal="true"
     aria-label="Track details"
   >
-    <div ref="container" class="bg-bg-secondary border border-white/10 w-full sm:max-w-4xl max-h-[90vh] sm:max-h-[85vh] rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl">
+    <div ref="container" class="bg-bg-secondary w-full sm:max-w-4xl max-h-[90vh] sm:max-h-[85vh] rounded-t-lg sm:rounded-lg overflow-hidden flex flex-col shadow-2xl">
       <!-- Header -->
       <div class="p-3 sm:p-4 border-b border-white/10 flex items-center gap-3 sm:gap-4 bg-bg-primary/50">
         <img
           v-if="track"
           :src="track.cover_url || '/placeholder.svg'"
           :alt="track.album_name"
-          class="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover bg-white/10 flex-shrink-0"
+          class="w-12 h-12 sm:w-14 sm:h-14 rounded-md object-cover bg-white/10 flex-shrink-0"
         />
         <div v-if="track" class="flex-1 min-w-0">
           <h2 class="font-heading font-semibold text-base sm:text-lg truncate text-white">{{ track.name }}</h2>
@@ -86,7 +86,7 @@ onMounted(loadTrack)
         <div v-if="track" class="flex-shrink-0">
           <button
             @click="handleRate"
-            class="flex items-center gap-1 px-3 py-2 bg-accent-primary text-black rounded-lg text-sm font-medium hover:bg-accent-primary/90 transition-colors min-h-[44px]"
+            class="flex items-center gap-1 px-3 py-2 bg-accent-primary text-black rounded-full text-sm font-bold hover:bg-accent-bright transition-colors min-h-[44px]"
           >
             <Star class="w-3 h-3" />
             {{ getUserRanking()?.score?.toFixed(1) || 'Rate' }}
@@ -94,7 +94,7 @@ onMounted(loadTrack)
         </div>
         <button
           @click="emit('close')"
-          class="p-2 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+          class="p-2 hover:bg-surface-highlight rounded-lg transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
         >
           <X class="w-5 h-5" />
         </button>
@@ -133,7 +133,7 @@ onMounted(loadTrack)
               <div
                 v-for="ranking in track.rankings"
                 :key="ranking.user_id"
-                class="bg-white/5 border border-white/10 rounded-xl p-3 sm:p-4"
+                class="bg-surface-highlight rounded-lg p-3 sm:p-4"
               >
                 <div class="flex items-center justify-between mb-2">
                   <span class="font-medium text-white text-sm sm:text-base">{{ ranking.user_name }}</span>
