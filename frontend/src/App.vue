@@ -6,10 +6,13 @@ import {
   TrendingUp, Users, Layers, Calendar, BarChart3
 } from 'lucide-vue-next'
 import MiniPlayer from './components/MiniPlayer.vue'
+import NowPlayingSidebar from './components/NowPlayingSidebar.vue'
 import { useSession } from './composables/useSession'
 import { useAuth } from './composables/useAuth'
+import { usePanel } from './composables/usePanel'
 
 const { isInSession, toasts, showToast } = useSession()
+const { panelView } = usePanel()
 const { currentUser, ready, requestLink, restore, logout } = useAuth()
 
 const users = ref([])
@@ -239,6 +242,9 @@ onMounted(async () => {
           <div v-else class="text-center py-24 text-text-subdued">Loading…</div>
         </div>
       </main>
+
+      <!-- Right now-playing panel (lyrics / queue), toggled from the player bar -->
+      <NowPlayingSidebar v-if="isInSession && panelView" />
     </div>
 
     <!-- Click outside to close menu -->

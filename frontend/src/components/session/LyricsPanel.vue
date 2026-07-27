@@ -7,7 +7,9 @@ const props = defineProps({
   // { spotifyId, name, artist, album, durationMs } | null
   track: { type: Object, default: null },
   position: { type: Number, default: 0 },
-  playing: { type: Boolean, default: false }
+  playing: { type: Boolean, default: false },
+  // Embedded in the now-playing sidebar: no card chrome, fill parent height
+  bare: { type: Boolean, default: false }
 })
 
 const { loading, found, instrumental, syncedLines, plainLyrics, activeIndex } =
@@ -55,8 +57,8 @@ watch(() => props.track?.spotifyId, () => {
 </script>
 
 <template>
-  <div class="glass overflow-hidden">
-    <div class="flex items-center gap-3 p-4 border-b border-white/10">
+  <div :class="bare ? 'flex flex-col h-full min-h-0' : 'glass overflow-hidden'">
+    <div v-if="!bare" class="flex items-center gap-3 p-4 border-b border-white/10">
       <Mic class="w-5 h-5 text-accent-primary" />
       <span class="font-medium">Lyrics</span>
       <span v-if="track && hasSynced" class="text-xs text-text-subdued ml-auto truncate">{{ track.name }}</span>
@@ -81,7 +83,8 @@ watch(() => props.track?.spotifyId, () => {
       v-else-if="hasSynced"
       ref="scrollEl"
       @scroll="onScroll"
-      class="max-h-[420px] overflow-y-auto px-5 py-6 space-y-1 scroll-smooth"
+      class="overflow-y-auto px-5 py-6 space-y-1 scroll-smooth"
+      :class="bare ? 'flex-1 min-h-0' : 'max-h-[420px]'"
     >
       <p
         v-for="(line, i) in syncedLines"
@@ -98,7 +101,7 @@ watch(() => props.track?.spotifyId, () => {
     </div>
 
     <!-- Plain lyrics fallback (no timestamps) -->
-    <div v-else-if="plainLyrics" class="max-h-[420px] overflow-y-auto px-5 py-6">
+    <div v-else-if="plainLyrics" class="overflow-y-auto px-5 py-6" :class="bare ? 'flex-1 min-h-0' : 'max-h-[420px]'">
       <p class="text-xs text-text-subdued mb-3">No synced version — plain lyrics</p>
       <p class="whitespace-pre-line text-white/90 leading-relaxed">{{ plainLyrics }}</p>
     </div>

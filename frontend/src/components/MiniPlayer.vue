@@ -1,12 +1,13 @@
 <script setup>
 import { ref, inject, computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { Play, Pause, SkipBack, SkipForward, X, Radio, RefreshCw } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { Play, Pause, SkipBack, SkipForward, X, Radio, RefreshCw, Mic, ListMusic } from 'lucide-vue-next'
 import { useSession } from '../composables/useSession'
+import { usePanel } from '../composables/usePanel'
 
 const router = useRouter()
-const route = useRoute()
 const currentUser = inject('currentUser')
+const { panelView, togglePanel } = usePanel()
 
 const {
   session,
@@ -42,11 +43,6 @@ const displayImage = computed(() => (isHangout.value
 
 const isSyncing = ref(false)
 
-// Hide mini player when on the session page itself
-const isOnSessionPage = computed(() => {
-  return route.path.startsWith('/session/')
-})
-
 function goToSession() {
   if (session.value?.code) {
     router.push(`/session/${session.value.code}`)
@@ -80,7 +76,7 @@ async function handleSync() {
 
 <template>
   <div
-    v-if="session && (isHangout ? !!media : (hasAlbum || !!media)) && !isOnSessionPage"
+    v-if="session && (isHangout ? !!media : (hasAlbum || !!media))"
     class="shrink-0 bg-surface-base safe-area-bottom"
   >
     <!-- Progress bar at top -->
@@ -124,6 +120,24 @@ async function handleSync() {
 
         <!-- Controls -->
         <div class="flex items-center gap-1">
+          <button
+            @click="togglePanel('lyrics')"
+            class="p-2 rounded-full transition-colors"
+            :class="panelView === 'lyrics' ? 'text-accent-primary' : 'text-text-subdued hover:text-white'"
+            title="Lyrics"
+            :aria-pressed="panelView === 'lyrics'"
+          >
+            <Mic class="w-4 h-4" />
+          </button>
+          <button
+            @click="togglePanel('queue')"
+            class="p-2 rounded-full transition-colors"
+            :class="panelView === 'queue' ? 'text-accent-primary' : 'text-text-subdued hover:text-white'"
+            title="Queue"
+            :aria-pressed="panelView === 'queue'"
+          >
+            <ListMusic class="w-4 h-4" />
+          </button>
           <button
             @click="handleSync"
             class="p-2 text-text-subdued hover:text-white rounded-full transition-colors"
