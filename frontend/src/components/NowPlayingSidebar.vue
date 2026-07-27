@@ -31,7 +31,31 @@ const {
   currentTrack: spotifyCurrentTrack
 } = useSpotifyPlayer()
 
-const { panelView, closePanel } = usePanel()
+const { panelView, panelWidth, closePanel, setPanelWidth } = usePanel()
+
+// Drag the left edge to resize (desktop layout only; mobile is a full sheet)
+function startResize(e) {
+  e.preventDefault()
+  const move = ev => {
+    const x = ev.touches ? ev.touches[0].clientX : ev.clientX
+    // Panel is flush right: width = distance from pointer to viewport right edge
+    setPanelWidth(window.innerWidth - x - 8)
+  }
+  const stop = () => {
+    document.removeEventListener('mousemove', move)
+    document.removeEventListener('mouseup', stop)
+    document.removeEventListener('touchmove', move)
+    document.removeEventListener('touchend', stop)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+  document.addEventListener('mousemove', move)
+  document.addEventListener('mouseup', stop)
+  document.addEventListener('touchmove', move)
+  document.addEventListener('touchend', stop)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
 
 const coverImage = computed(() => (isHangout.value
   ? media.value?.image
@@ -106,7 +130,21 @@ function playTrack(track) {
 </script>
 
 <template>
-  <aside class="fixed inset-x-2 top-2 bottom-2 z-40 lg:static lg:z-auto lg:w-80 lg:shrink-0 flex flex-col">
+  <aside
+    class="fixed inset-x-2 top-2 bottom-2 z-40 lg:static lg:z-auto lg:w-[var(--panel-w)] lg:shrink-0 flex flex-col lg:relative"
+    :style="{ '--panel-w': panelWidth + 'px' }"
+  >
+    <!-- Resize handle (desktop) -->
+    <div
+      class="hidden lg:block absolute -left-1.5 inset-y-0 w-3 cursor-col-resize z-10 group"
+      @mousedown="startResize"
+      @touchstart="startResize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize panel"
+    >
+      <div class="mx-auto h-full w-px bg-transparent group-hover:bg-white/30 group-active:bg-white/50 transition-colors"></div>
+    </div>
     <div class="bg-bg-primary rounded-lg flex-1 flex flex-col min-h-0 overflow-hidden shadow-2xl shadow-black/60 lg:shadow-none">
       <!-- Header -->
       <div class="flex items-center gap-2 px-4 py-3 shrink-0">

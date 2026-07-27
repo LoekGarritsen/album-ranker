@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Users, Copy, Check, Star, ChevronLeft, Radio, Music, Unplug, Disc3, Search, BarChart3, ListMusic, MessageCircle, ChevronDown, ChevronUp, Mic } from 'lucide-vue-next'
+import { Users, Copy, Check, Star, ChevronLeft, Radio, Music, Unplug, Disc3, Search, BarChart3, ListMusic, MessageCircle, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 import AlbumPickerModal from '../components/AlbumPickerModal.vue'
@@ -12,7 +12,6 @@ import SessionChat from '../components/session/SessionChat.vue'
 import MediaSearchModal from '../components/session/MediaSearchModal.vue'
 import MediaNowPlaying from '../components/session/MediaNowPlaying.vue'
 import SessionQueue from '../components/session/SessionQueue.vue'
-import LyricsPanel from '../components/session/LyricsPanel.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 import { useSession } from '../composables/useSession'
 import { useFavorites } from '../composables/useFavorites'
@@ -66,7 +65,6 @@ const {
   isConnected: spotifyConnected,
   isPaused: spotifyPaused,
   position: spotifyPosition,
-  duration: spotifyDuration,
   currentTrack: spotifyCurrentTrack,
   error: spotifyError,
   trackEnded: spotifyTrackEnded,
@@ -150,50 +148,6 @@ const liveSpotifyTrackName = computed(() => {
 })
 
 const headerImage = computed(() => album.value?.cover_url || media.value?.image || null)
-
-// What the lyrics panel should show. Hangout album context: only the local
-// Spotify SDK knows the actual track; other listeners get no lyrics there.
-const lyricsTrack = computed(() => {
-  if (isHangout.value) {
-    const m = media.value
-    if (!m) return null
-    if (m.type === 'track') {
-      return {
-        spotifyId: m.spotify_id,
-        name: m.name,
-        artist: m.artist,
-        album: m.album_name || '',
-        durationMs: m.duration_ms || 0
-      }
-    }
-    const t = spotifyReady.value ? spotifyCurrentTrack.value : null
-    if (!t) return null
-    return {
-      spotifyId: t.id,
-      name: t.name,
-      artist: t.artists?.[0]?.name || m.artist,
-      album: t.album?.name || m.name,
-      durationMs: spotifyDuration.value || 0
-    }
-  }
-  const t = currentTrack.value
-  if (!t) return null
-  return {
-    spotifyId: t.spotify_id,
-    name: t.name,
-    artist: album.value?.artist || '',
-    album: album.value?.name || '',
-    durationMs: t.duration_ms || currentTrackDuration.value || 0
-  }
-})
-
-// Hangout album context has no room clock — Spotify's local clock drives it
-const lyricsPosition = computed(() =>
-  isHangout.value && media.value?.type === 'album' ? spotifyPosition.value : playbackPosition.value
-)
-const lyricsPlaying = computed(() =>
-  isHangout.value && media.value?.type === 'album' ? !spotifyPaused.value : isPlaying.value
-)
 
 async function handleSyncAudio() {
   if (isSyncing.value) return
@@ -695,13 +649,6 @@ onUnmounted(() => {
             @skip="handleSkipQueue"
           />
 
-          <LyricsPanel
-            v-if="media"
-            :track="lyricsTrack"
-            :position="lyricsPosition"
-            :playing="lyricsPlaying"
-          />
-
           <!-- Spotify status (compact) -->
           <div class="glass p-3 flex items-center justify-between gap-3">
             <div class="flex items-center gap-2.5 min-w-0">
@@ -817,16 +764,6 @@ onUnmounted(() => {
                   <BarChart3 class="w-4 h-4" />
                   Stats
                 </button>
-                <button
-                  @click="mainTab = 'lyrics'"
-                  role="tab"
-                  :aria-selected="mainTab === 'lyrics'"
-                  class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors min-h-[44px]"
-                  :class="mainTab === 'lyrics' ? 'bg-white text-black' : 'bg-surface-highlight text-white hover:bg-surface-elevated'"
-                >
-                  <Mic class="w-4 h-4" />
-                  Lyrics
-                </button>
               </div>
 
               <SessionTrackList
@@ -840,16 +777,10 @@ onUnmounted(() => {
                 @detail="openTrackDetail"
               />
               <SessionStats
-                v-else-if="mainTab === 'stats'"
+                v-else
                 :album="album"
                 :current-user="currentUser"
                 @rate-album="openAlbumRating"
-              />
-              <LyricsPanel
-                v-else
-                :track="lyricsTrack"
-                :position="lyricsPosition"
-                :playing="lyricsPlaying"
               />
             </div>
           </template>
