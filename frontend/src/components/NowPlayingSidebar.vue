@@ -1,6 +1,6 @@
 <script setup>
-import { computed, inject } from 'vue'
-import { X, Mic, ListMusic, Music, Disc3, ThumbsUp, Play } from 'lucide-vue-next'
+import { computed, inject, ref } from 'vue'
+import { X, Mic, ListMusic, Music, Disc3, ThumbsUp, Play, GripVertical } from 'lucide-vue-next'
 import LyricsPanel from './session/LyricsPanel.vue'
 import { useSession } from '../composables/useSession'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
@@ -20,8 +20,35 @@ const {
   isHangout,
   hasAlbum,
   selectTrack,
+  moveQueueItem,
   formatDuration
 } = useSession()
+
+// Drag to reorder the hangout queue (same pattern as SessionQueue)
+const dragId = ref(null)
+const dragOverIdx = ref(null)
+
+function onDragStart(item) {
+  dragId.value = item.id
+}
+
+function onDragOver(idx) {
+  if (dragId.value !== null) dragOverIdx.value = idx
+}
+
+function onDrop(idx) {
+  if (dragId.value !== null) {
+    const from = queue.value.findIndex(q => q.id === dragId.value)
+    if (from >= 0 && from !== idx) moveQueueItem(dragId.value, idx)
+  }
+  dragId.value = null
+  dragOverIdx.value = null
+}
+
+function onDragEnd() {
+  dragId.value = null
+  dragOverIdx.value = null
+}
 
 const {
   isReady: spotifyReady,
@@ -188,10 +215,20 @@ function playTrack(track) {
             Queue is empty — anyone can add songs
           </div>
           <div
-            v-for="item in queue"
+            v-for="(item, idx) in queue"
             :key="item.id"
-            class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-white/5"
+            draggable="true"
+            @dragstart="onDragStart(item)"
+            @dragover.prevent="onDragOver(idx)"
+            @drop.prevent="onDrop(idx)"
+            @dragend="onDragEnd"
+            class="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-white/5 cursor-grab active:cursor-grabbing transition-colors"
+            :class="{
+              'opacity-40': dragId === item.id,
+              'bg-surface-highlight': dragOverIdx === idx && dragId !== item.id
+            }"
           >
+            <GripVertical class="w-4 h-4 text-white/30 shrink-0" />
             <img v-if="item.image" :src="item.image" class="w-10 h-10 rounded-md object-cover bg-surface-highlight" />
             <div v-else class="w-10 h-10 rounded-md bg-surface-highlight flex items-center justify-center">
               <component :is="item.type === 'album' ? Disc3 : Music" class="w-4 h-4 text-text-subdued" />

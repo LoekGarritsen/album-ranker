@@ -48,11 +48,8 @@ const {
   removeQueueItem,
   voteQueueItem,
   moveQueueItem,
-  voteMedia,
-  mediaVotes,
   advanceQueue,
   togglePlayback,
-  seekTo,
   showToast,
   startProgressInterval,
   stopProgressInterval,
@@ -80,7 +77,7 @@ const {
 } = useSpotifyPlayer()
 
 // Personal favorites (heart on now-playing + quick re-queue in search modal)
-const { loadFavorites, isFavorite, toggleFavorite } = useFavorites()
+const { loadFavorites } = useFavorites()
 
 const loading = ref(true)
 const copied = ref(false)
@@ -235,20 +232,6 @@ async function handleSkipQueue() {
   await advanceQueue()
 }
 
-// My vote on the current song, derived from the room-wide voter list
-const myMediaVote = computed(() =>
-  mediaVotes.value.voters?.find(v => v.user_id === currentUser.value?.id)?.vote || 0
-)
-
-function handleVoteMedia(vote) {
-  voteMedia(vote)
-}
-
-async function handleToggleFavoriteMedia() {
-  if (!media.value) return
-  await toggleFavorite(media.value)
-}
-
 async function handleSelectTrack(trackId) {
   // Prevent watcher from interfering - selectTrack handles Spotify directly
   isSelectingTrack.value = true
@@ -264,24 +247,6 @@ async function handleSelectTrack(trackId) {
 
 async function handleTogglePlayback() {
   await togglePlayback(currentUser.value)
-}
-
-async function handleSeekTo(percent) {
-  await seekTo(percent, currentUser.value)
-}
-
-async function handleSkipPrevious() {
-  const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
-  if (trackIdx > 0) {
-    await handleSelectTrack(album.value.tracks[trackIdx - 1].id)
-  }
-}
-
-async function handleSkipNext() {
-  const trackIdx = album.value?.tracks?.findIndex(t => t.id === session.value?.current_track_id)
-  if (trackIdx >= 0 && trackIdx < album.value.tracks.length - 1) {
-    await handleSelectTrack(album.value.tracks[trackIdx + 1].id)
-  }
 }
 
 async function copyCode() {
@@ -620,21 +585,8 @@ onUnmounted(() => {
           <MediaNowPlaying
             :media="media"
             :is-playing="isPlaying"
-            :position="playbackPosition"
-            :duration="currentTrackDuration"
             :live-track-name="liveSpotifyTrackName"
-            :is-favorite="media ? isFavorite(media.spotify_id) : false"
-            :likes="mediaVotes.likes"
-            :dislikes="mediaVotes.dislikes"
-            :my-vote="myMediaVote"
-            :show-sync="spotifyReady"
-            :is-syncing="isSyncing"
-            @toggle="handleTogglePlayback"
-            @seek="handleSeekTo"
             @search="showMediaSearch = true"
-            @favorite="handleToggleFavoriteMedia"
-            @vote="handleVoteMedia"
-            @sync="handleSyncAudio"
           />
 
           <!-- Shared queue: anyone adds, votes reorder, top item plays next -->
@@ -729,16 +681,9 @@ onUnmounted(() => {
               :is-playing="isPlaying"
               :position="playbackPosition"
               :duration="currentTrackDuration"
-              :is-syncing="isSyncing"
-              :show-sync="spotifyReady"
               :my-score="myCurrentTrackScore"
-              @toggle="handleTogglePlayback"
-              @next="handleSkipNext"
-              @prev="handleSkipPrevious"
-              @seek="handleSeekTo"
               @quick-rate="quickRateCurrentTrack"
               @open-rating="currentTrack && openTrackRating(currentTrack)"
-              @sync="handleSyncAudio"
             />
 
             <!-- Tracks / Stats tabs -->
