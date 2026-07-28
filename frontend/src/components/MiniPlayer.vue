@@ -3,10 +3,11 @@ import { ref, inject, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Play, Pause, SkipBack, SkipForward, X, Radio, RefreshCw,
-  Mic, ListMusic, Heart, ThumbsUp, ThumbsDown
+  Mic, ListMusic, Heart, ThumbsUp, ThumbsDown, Volume2, Volume1, VolumeX
 } from 'lucide-vue-next'
 import { useSession } from '../composables/useSession'
 import { useFavorites } from '../composables/useFavorites'
+import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 import { usePanel } from '../composables/usePanel'
 
 const router = useRouter()
@@ -57,6 +58,34 @@ const myMediaVote = computed(() =>
 const mediaIsFavorite = computed(() => (media.value ? isFavorite(media.value.spotify_id) : false))
 
 const isSyncing = ref(false)
+
+// Volume drives the local Spotify SDK — per listener, not room-wide
+const { isReady: spotifyReady, volume, setVolume } = useSpotifyPlayer()
+const lastVolume = ref(50)
+const volHover = ref(false)
+
+// Inline gradient: Chromium doesn't resolve CSS vars inside slider-track pseudos
+const volumeStyle = computed(() => ({
+  background: `linear-gradient(to right, ${volHover.value ? '#1DB954' : '#fff'} ${volume.value}%, rgba(255,255,255,0.3) ${volume.value}%)`
+}))
+
+const volumeIcon = computed(() => {
+  if (volume.value === 0) return VolumeX
+  return volume.value < 50 ? Volume1 : Volume2
+})
+
+function onVolumeInput(event) {
+  setVolume(Number(event.target.value))
+}
+
+function toggleMute() {
+  if (volume.value > 0) {
+    lastVolume.value = volume.value
+    setVolume(0)
+  } else {
+    setVolume(lastVolume.value || 50)
+  }
+}
 
 function goToSession() {
   if (session.value?.code) {
@@ -224,8 +253,33 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Right: panel toggles + sync + leave -->
+      <!-- Right: volume + panel toggles + sync + leave -->
       <div class="flex items-center justify-end gap-0.5 sm:gap-1">
+        <div
+          v-if="spotifyReady"
+          class="hidden sm:flex items-center gap-1 mr-1 group"
+          @mouseenter="volHover = true"
+          @mouseleave="volHover = false"
+        >
+          <button
+            @click="toggleMute"
+            class="p-2 rounded-full text-text-subdued hover:text-white transition-colors"
+            :title="volume === 0 ? 'Unmute' : 'Mute'"
+            :aria-label="volume === 0 ? 'Unmute' : 'Mute'"
+          >
+            <component :is="volumeIcon" class="w-4 h-4" />
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            :value="volume"
+            @input="onVolumeInput"
+            class="volume-slider"
+            :style="volumeStyle"
+            aria-label="Volume"
+          />
+        </div>
         <button
           @click="togglePanel('lyrics')"
           class="p-2 rounded-full transition-colors"
@@ -267,5 +321,58 @@ onMounted(() => {
 <style scoped>
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Spotify-style volume: white fill (gradient set inline), thumb on hover.
+   Overrides the global rating-slider gradient styles. */
+.volume-slider {
+  width: 6rem;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+}
+
+.volume-slider:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+
+.volume-slider::-webkit-slider-track {
+  height: 4px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: none;
+  box-shadow: none;
+  background: #fff;
+  opacity: 0;
+}
+
+.group:hover .volume-slider::-webkit-slider-thumb {
+  opacity: 1;
+}
+
+.volume-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  box-shadow: none;
+  background: #fff;
+  opacity: 0;
+}
+
+.group:hover .volume-slider::-moz-range-thumb {
+  opacity: 1;
 }
 </style>
