@@ -1,9 +1,9 @@
 <script setup>
 import { ref, inject, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import {
   Play, Pause, SkipBack, SkipForward, X, Radio, RefreshCw,
-  Mic, ListMusic, Heart, ThumbsUp, ThumbsDown, Volume2, Volume1, VolumeX
+  Mic, ListMusic, Heart, ThumbsUp, ThumbsDown, Volume2, Volume1, VolumeX, Music
 } from 'lucide-vue-next'
 import { useSession } from '../composables/useSession'
 import { useFavorites } from '../composables/useFavorites'
@@ -11,6 +11,7 @@ import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 import { usePanel } from '../composables/usePanel'
 
 const router = useRouter()
+const route = useRoute()
 const currentUser = inject('currentUser')
 const { panelView, togglePanel } = usePanel()
 const { loadFavorites, isFavorite, toggleFavorite } = useFavorites()
@@ -60,7 +61,31 @@ const mediaIsFavorite = computed(() => (media.value ? isFavorite(media.value.spo
 const isSyncing = ref(false)
 
 // Volume drives the local Spotify SDK — per listener, not room-wide
-const { isReady: spotifyReady, volume, setVolume } = useSpotifyPlayer()
+const {
+  isReady: spotifyReady,
+  isConnected: spotifyConnected,
+  error: spotifyError,
+  connect: connectSpotify,
+  disconnect: disconnectSpotify,
+  volume,
+  setVolume
+} = useSpotifyPlayer()
+
+const spotifyStatus = computed(() => {
+  if (spotifyReady.value) return 'Spotify ready — click to disconnect'
+  if (spotifyConnected.value) return spotifyError.value || 'Starting Spotify player…'
+  return 'Connect Spotify to hear it (Premium)'
+})
+
+async function handleSpotifyConnect() {
+  if (spotifyConnected.value) {
+    await disconnectSpotify()
+  } else {
+    // Come back to this page after the OAuth round-trip
+    try { localStorage.setItem('spotifyReturnPath', route.fullPath) } catch {}
+    await connectSpotify()
+  }
+}
 const lastVolume = ref(50)
 const volHover = ref(false)
 
@@ -280,6 +305,23 @@ onMounted(() => {
             aria-label="Volume"
           />
         </div>
+        <button
+          @click="handleSpotifyConnect"
+          class="p-1.5 mr-0.5 rounded-full transition-colors"
+          :title="spotifyStatus"
+          :aria-label="spotifyStatus"
+        >
+          <span
+            class="w-6 h-6 rounded-full flex items-center justify-center transition-colors"
+            :class="spotifyReady
+              ? 'bg-accent-primary text-black'
+              : spotifyConnected
+                ? 'bg-accent-primary/40 text-black animate-pulse'
+                : 'border border-white/40 text-text-subdued hover:border-white hover:text-white'"
+          >
+            <Music class="w-3.5 h-3.5" />
+          </span>
+        </button>
         <button
           @click="togglePanel('lyrics')"
           class="p-2 rounded-full transition-colors"

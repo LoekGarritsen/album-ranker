@@ -1,17 +1,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Users, Copy, Check, Star, ChevronLeft, Radio, Music, Unplug, Disc3, Search, BarChart3, ListMusic, MessageCircle, ChevronDown, ChevronUp } from 'lucide-vue-next'
+import { Users, Copy, Check, Star, ChevronLeft, Radio, Disc3, Search, BarChart3, ListMusic, MessageCircle, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 import AlbumPickerModal from '../components/AlbumPickerModal.vue'
-import NowPlayingCard from '../components/session/NowPlayingCard.vue'
 import SessionTrackList from '../components/session/SessionTrackList.vue'
 import SessionStats from '../components/session/SessionStats.vue'
 import SessionChat from '../components/session/SessionChat.vue'
 import MediaSearchModal from '../components/session/MediaSearchModal.vue'
 import MediaNowPlaying from '../components/session/MediaNowPlaying.vue'
-import SessionQueue from '../components/session/SessionQueue.vue'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 import { useSession } from '../composables/useSession'
 import { useFavorites } from '../composables/useFavorites'
@@ -45,9 +43,6 @@ const {
   setAlbum,
   setMedia,
   addToQueue,
-  removeQueueItem,
-  voteQueueItem,
-  moveQueueItem,
   advanceQueue,
   togglePlayback,
   showToast,
@@ -63,12 +58,9 @@ const {
   isPaused: spotifyPaused,
   position: spotifyPosition,
   currentTrack: spotifyCurrentTrack,
-  error: spotifyError,
   trackEnded: spotifyTrackEnded,
   setUserId: setSpotifyUserId,
   checkConnection: checkSpotifyConnection,
-  connect: connectSpotify,
-  disconnect: disconnectSpotify,
   initPlayer: initSpotifyPlayer,
   pause: spotifyPause,
   seek: spotifySeek,
@@ -130,10 +122,6 @@ async function switchMode() {
   }
   switchingMode.value = false
 }
-
-const myCurrentTrackScore = computed(() =>
-  currentTrack.value?.rankings?.find(r => r.user_id === currentUser.value?.id && r.score != null)?.score ?? null
-)
 
 // Album context: what Spotify is actually playing right now (hangout albums
 // advance track-by-track inside the SDK; mirror the name for the room card).
@@ -216,22 +204,6 @@ async function handleQueueMedia(item) {
   if (!ok) showToast('Could not add to queue', 'error')
 }
 
-async function handleRemoveQueueItem(itemId) {
-  await removeQueueItem(itemId)
-}
-
-function handleVoteQueueItem(itemId, vote) {
-  voteQueueItem(itemId, vote)
-}
-
-function handleMoveQueueItem(itemId, index) {
-  moveQueueItem(itemId, index)
-}
-
-async function handleSkipQueue() {
-  await advanceQueue()
-}
-
 async function handleSelectTrack(trackId) {
   // Prevent watcher from interfering - selectTrack handles Spotify directly
   isSelectingTrack.value = true
@@ -305,16 +277,6 @@ async function submitRating(data) {
 }
 
 // One-tap rating from the now-playing card
-async function quickRateCurrentTrack(score) {
-  if (!currentTrack.value) return
-  try {
-    const ok = await postRating(false, { track_id: currentTrack.value.id, score, comment: null })
-    if (!ok) showToast('Failed to save rating', 'error')
-  } catch (e) {
-    showToast('Failed to save rating', 'error')
-  }
-}
-
 // Auto-advance to next track
 async function autoAdvanceTrack() {
   if (isAutoAdvancing.value || isSelectingTrack.value) return
@@ -445,16 +407,6 @@ watch(session, (newSession) => {
 })
 
 // Handle Spotify connect button
-async function handleSpotifyConnect() {
-  if (spotifyConnected.value) {
-    await disconnectSpotify()
-  } else {
-    // Come back to this room after the OAuth round-trip
-    try { localStorage.setItem('spotifyReturnPath', route.fullPath) } catch {}
-    await connectSpotify()
-  }
-}
-
 onMounted(() => {
   loadSession()
   loadFavorites()
@@ -589,39 +541,6 @@ onUnmounted(() => {
             @search="showMediaSearch = true"
           />
 
-          <!-- Shared queue: anyone adds, votes reorder, top item plays next -->
-          <SessionQueue
-            :queue="queue"
-            :current-user-id="currentUser?.id"
-            :can-moderate="canSwitchMode"
-            @add="showMediaSearch = true"
-            @remove="handleRemoveQueueItem"
-            @vote="handleVoteQueueItem"
-            @move="handleMoveQueueItem"
-            @skip="handleSkipQueue"
-          />
-
-          <!-- Spotify status (compact) -->
-          <div class="glass p-3 flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 bg-accent-primary rounded-full flex items-center justify-center flex-shrink-0" :class="{ 'animate-pulse': spotifyConnected && !spotifyReady }">
-                <Music class="w-4 h-4 text-black" />
-              </div>
-              <div class="min-w-0">
-                <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-accent-primary' : ''">
-                  {{ spotifyReady ? 'Spotify ready' : spotifyConnected ? (spotifyError || 'Starting player…') : 'Connect Spotify to hear it' }}
-                </p>
-              </div>
-            </div>
-            <button
-              @click="handleSpotifyConnect"
-              class="px-3 py-1.5 rounded-full text-xs font-medium min-h-[36px] flex-shrink-0 transition-colors"
-              :class="spotifyConnected ? 'border border-white/30 text-white/90 hover:bg-surface-highlight' : 'bg-accent-primary text-black hover:bg-accent-bright'"
-            >
-              {{ spotifyConnected ? 'Disconnect' : 'Connect' }}
-            </button>
-          </div>
-
           <!-- People here -->
           <div class="glass p-4">
             <div class="flex items-center gap-3 mb-3">
@@ -676,16 +595,6 @@ onUnmounted(() => {
           </div>
 
           <template v-else>
-            <NowPlayingCard
-              :track="currentTrack"
-              :is-playing="isPlaying"
-              :position="playbackPosition"
-              :duration="currentTrackDuration"
-              :my-score="myCurrentTrackScore"
-              @quick-rate="quickRateCurrentTrack"
-              @open-rating="currentTrack && openTrackRating(currentTrack)"
-            />
-
             <!-- Tracks / Stats tabs -->
             <div>
               <div class="flex items-center gap-1 mb-3" role="tablist">
@@ -733,29 +642,6 @@ onUnmounted(() => {
 
         <!-- Sidebar -->
         <div class="space-y-4">
-          <!-- Spotify status (compact) -->
-          <div v-if="hasAlbum" class="glass p-3 flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 bg-accent-primary rounded-full flex items-center justify-center flex-shrink-0" :class="{ 'animate-pulse': spotifyConnected && !spotifyReady }">
-                <Music class="w-4 h-4 text-black" />
-              </div>
-              <div class="min-w-0">
-                <p class="text-sm font-medium truncate" :class="spotifyReady ? 'text-accent-primary' : ''">
-                  {{ spotifyReady ? 'Spotify ready' : spotifyConnected ? (spotifyError || 'Starting player…') : 'Connect Spotify' }}
-                </p>
-                <p v-if="!spotifyConnected" class="text-xs text-text-subdued">Play in sync (Premium)</p>
-              </div>
-            </div>
-            <button
-              @click="handleSpotifyConnect"
-              class="px-3 py-1.5 rounded-full text-xs font-medium min-h-[36px] flex-shrink-0 transition-colors flex items-center gap-1.5"
-              :class="spotifyConnected ? 'border border-white/30 text-white/90 hover:bg-surface-highlight' : 'bg-accent-primary text-black hover:bg-accent-bright'"
-            >
-              <Unplug v-if="spotifyConnected" class="w-3.5 h-3.5" />
-              {{ spotifyConnected ? 'Disconnect' : 'Connect' }}
-            </button>
-          </div>
-
           <!-- Listeners -->
           <div class="glass p-4">
             <div class="flex items-center gap-3 mb-3">

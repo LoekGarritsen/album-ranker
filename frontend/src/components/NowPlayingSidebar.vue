@@ -1,7 +1,11 @@
 <script setup>
 import { computed, inject, ref } from 'vue'
-import { X, Mic, ListMusic, Music, Disc3, ThumbsUp, Play, GripVertical } from 'lucide-vue-next'
+import {
+  X, Mic, ListMusic, Music, Disc3, ThumbsUp, ThumbsDown, Play,
+  GripVertical, Plus, SkipForward
+} from 'lucide-vue-next'
 import LyricsPanel from './session/LyricsPanel.vue'
+import MediaSearchModal from './session/MediaSearchModal.vue'
 import { useSession } from '../composables/useSession'
 import { useSpotifyPlayer } from '../composables/useSpotifyPlayer'
 import { usePanel } from '../composables/usePanel'
@@ -20,35 +24,15 @@ const {
   isHangout,
   hasAlbum,
   selectTrack,
+  setMedia,
+  addToQueue,
+  removeQueueItem,
+  voteQueueItem,
   moveQueueItem,
+  advanceQueue,
+  showToast,
   formatDuration
 } = useSession()
-
-// Drag to reorder the hangout queue (same pattern as SessionQueue)
-const dragId = ref(null)
-const dragOverIdx = ref(null)
-
-function onDragStart(item) {
-  dragId.value = item.id
-}
-
-function onDragOver(idx) {
-  if (dragId.value !== null) dragOverIdx.value = idx
-}
-
-function onDrop(idx) {
-  if (dragId.value !== null) {
-    const from = queue.value.findIndex(q => q.id === dragId.value)
-    if (from >= 0 && from !== idx) moveQueueItem(dragId.value, idx)
-  }
-  dragId.value = null
-  dragOverIdx.value = null
-}
-
-function onDragEnd() {
-  dragId.value = null
-  dragOverIdx.value = null
-}
 
 const {
   isReady: spotifyReady,
@@ -108,7 +92,79 @@ const upcomingTracks = computed(() => {
   return album.value.tracks.filter(t => t.track_number > currentTrack.value.track_number)
 })
 
-// Same source logic as Session.vue: hangout album context only has lyrics
+// ---- Quick rating for the playing track (listening mode) ----
+const myScore = computed(() =>
+  currentTrack.value?.rankings?.find(r => r.user_id === currentUser?.value?.id && r.score != null)?.score ?? null
+)
+
+async function quickRate(score) {
+  if (!currentTrack.value || !session.value?.code) return
+  try {
+    const res = await fetch(`/api/rankings/track?session_code=${session.value.code}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track_id: currentTrack.value.id, score, comment: null })
+    })
+    if (!res.ok) showToast('Failed to save rating', 'error')
+  } catch {
+    showToast('Failed to save rating', 'error')
+  }
+}
+
+// ---- Hangout queue management ----
+const showMediaSearch = ref(false)
+
+const canModerate = computed(() =>
+  session.value?.created_by === currentUser?.value?.id || !!currentUser?.value?.is_admin
+)
+
+function canRemove(item) {
+  return canModerate.value || item.added_by === currentUser?.value?.id
+}
+
+function myQueueVote(item) {
+  return item.votes?.find(v => v.user_id === currentUser?.value?.id)?.vote || 0
+}
+
+async function handleSelectMedia(item) {
+  showMediaSearch.value = false
+  const ok = await setMedia(item)
+  if (!ok) showToast('Could not start playback', 'error')
+}
+
+// Modal stays open so several songs can be queued in one go.
+async function handleQueueMedia(item) {
+  const ok = await addToQueue(item)
+  if (!ok) showToast('Could not add to queue', 'error')
+}
+
+// Drag to reorder the hangout queue (same pattern as the old room card)
+const dragId = ref(null)
+const dragOverIdx = ref(null)
+
+function onDragStart(item) {
+  dragId.value = item.id
+}
+
+function onDragOver(idx) {
+  if (dragId.value !== null) dragOverIdx.value = idx
+}
+
+function onDrop(idx) {
+  if (dragId.value !== null) {
+    const from = queue.value.findIndex(q => q.id === dragId.value)
+    if (from >= 0 && from !== idx) moveQueueItem(dragId.value, idx)
+  }
+  dragId.value = null
+  dragOverIdx.value = null
+}
+
+function onDragEnd() {
+  dragId.value = null
+  dragOverIdx.value = null
+}
+
+// Same source logic Session.vue used: hangout album context only has lyrics
 // for the local SDK listener; everyone else lacks a track identity.
 const lyricsTrack = computed(() => {
   if (isHangout.value) {
@@ -195,6 +251,29 @@ function playTrack(track) {
           <p v-if="trackPosition" class="text-xs text-text-subdued">{{ trackPosition }}</p>
         </div>
       </div>
+
+      <!-- Quick rating for the playing track (listening rooms) -->
+      <div v-if="!isHangout && currentTrack" class="px-4 pb-3 shrink-0">
+        <p class="text-xs text-text-subdued mb-1.5">
+          Your rating:
+          <span v-if="myScore != null" class="font-bold text-white">{{ myScore.toFixed(1) }}</span>
+          <span v-else>tap to rate</span>
+        </p>
+        <div class="grid grid-cols-10 gap-1">
+          <button
+            v-for="n in 10"
+            :key="n"
+            @click="quickRate(n)"
+            class="py-1.5 rounded text-xs font-medium transition-colors"
+            :class="myScore != null && Math.round(myScore) === n
+              ? 'bg-accent-primary text-black'
+              : 'bg-surface-highlight hover:bg-surface-elevated text-white/90'"
+            :aria-label="`Rate ${n}`"
+          >
+            {{ n }}
+          </button>
+        </div>
+      </div>
       <div class="mx-4 border-t border-white/10 shrink-0"></div>
 
       <!-- Lyrics view -->
@@ -208,11 +287,39 @@ function playTrack(track) {
 
       <!-- Queue view -->
       <div v-else class="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-        <!-- Hangout: shared queue -->
+        <!-- Hangout: shared queue with full management -->
         <template v-if="isHangout">
-          <p class="px-2 mb-2 text-xs font-bold uppercase tracking-wider text-text-subdued">Next in queue</p>
+          <div class="flex items-center gap-1 px-2 mb-2">
+            <p class="text-xs font-bold uppercase tracking-wider text-text-subdued">Next in queue</p>
+            <div class="ml-auto flex items-center">
+              <button
+                v-if="queue.length"
+                @click="advanceQueue"
+                class="p-1.5 rounded-full text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors"
+                title="Skip to next in queue"
+                aria-label="Skip to next in queue"
+              >
+                <SkipForward class="w-4 h-4" />
+              </button>
+              <button
+                @click="showMediaSearch = true"
+                class="p-1.5 rounded-full text-text-subdued hover:text-white hover:bg-surface-highlight transition-colors"
+                title="Add to queue"
+                aria-label="Add to queue"
+              >
+                <Plus class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
           <div v-if="queue.length === 0" class="px-2 py-6 text-center text-sm text-text-subdued">
             Queue is empty — anyone can add songs
+            <button
+              @click="showMediaSearch = true"
+              class="mt-3 mx-auto flex items-center gap-2 px-4 py-2 bg-surface-highlight hover:bg-surface-elevated rounded-full transition-colors text-sm text-white"
+            >
+              <Plus class="w-4 h-4" />
+              Add a song
+            </button>
           </div>
           <div
             v-for="(item, idx) in queue"
@@ -222,7 +329,7 @@ function playTrack(track) {
             @dragover.prevent="onDragOver(idx)"
             @drop.prevent="onDrop(idx)"
             @dragend="onDragEnd"
-            class="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-white/5 cursor-grab active:cursor-grabbing transition-colors"
+            class="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-white/5 cursor-grab active:cursor-grabbing transition-colors group/row"
             :class="{
               'opacity-40': dragId === item.id,
               'bg-surface-highlight': dragOverIdx === idx && dragId !== item.id
@@ -230,16 +337,41 @@ function playTrack(track) {
           >
             <GripVertical class="w-4 h-4 text-white/30 shrink-0" />
             <img v-if="item.image" :src="item.image" class="w-10 h-10 rounded-md object-cover bg-surface-highlight" />
-            <div v-else class="w-10 h-10 rounded-md bg-surface-highlight flex items-center justify-center">
+            <div v-else class="w-10 h-10 rounded-md bg-surface-highlight flex items-center justify-center shrink-0">
               <component :is="item.type === 'album' ? Disc3 : Music" class="w-4 h-4 text-text-subdued" />
             </div>
             <div class="min-w-0 flex-1">
               <p class="text-sm font-medium truncate">{{ item.name }}</p>
               <p class="text-xs text-text-subdued truncate">{{ item.artist }}<span v-if="item.type === 'album'"> · Album</span></p>
             </div>
-            <span v-if="item.votes?.length" class="flex items-center gap-1 text-xs text-text-subdued shrink-0">
-              <ThumbsUp class="w-3 h-3" />{{ item.votes.reduce((s, v) => s + v.vote, 0) }}
-            </span>
+            <div class="flex items-center shrink-0">
+              <button
+                @click.stop="voteQueueItem(item.id, 'up')"
+                class="p-1.5 rounded-full text-xs transition-colors flex items-center gap-0.5"
+                :class="myQueueVote(item) === 1 ? 'text-green-400' : 'text-text-subdued hover:text-green-400'"
+                aria-label="Vote up"
+                :aria-pressed="myQueueVote(item) === 1"
+              >
+                <ThumbsUp class="w-3.5 h-3.5" />
+              </button>
+              <button
+                @click.stop="voteQueueItem(item.id, 'down')"
+                class="p-1.5 rounded-full text-xs transition-colors flex items-center gap-0.5"
+                :class="myQueueVote(item) === -1 ? 'text-red-400' : 'text-text-subdued hover:text-red-400'"
+                aria-label="Vote down"
+                :aria-pressed="myQueueVote(item) === -1"
+              >
+                <ThumbsDown class="w-3.5 h-3.5" />
+              </button>
+              <button
+                v-if="canRemove(item)"
+                @click.stop="removeQueueItem(item.id)"
+                class="p-1.5 rounded-full text-text-subdued hover:text-white transition-colors opacity-0 group-hover/row:opacity-100"
+                aria-label="Remove from queue"
+              >
+                <X class="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </template>
 
@@ -271,5 +403,13 @@ function playTrack(track) {
         </div>
       </div>
     </div>
+
+    <!-- Media search (hangout: add to queue / play now) -->
+    <MediaSearchModal
+      v-if="showMediaSearch"
+      @close="showMediaSearch = false"
+      @select="handleSelectMedia"
+      @queue="handleQueueMedia"
+    />
   </aside>
 </template>
