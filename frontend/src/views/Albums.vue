@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, inject, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
-import { Search as SearchIcon, Plus, Check, Loader2, X, ChevronDown, Star, Trash2, Music, Sparkles, Disc3 } from 'lucide-vue-next'
+import { useRouter, useRoute } from 'vue-router'
+import { Search as SearchIcon, Plus, Check, Loader2, X, ChevronDown, Star, Trash2, Music, Sparkles, Disc3, EyeOff } from 'lucide-vue-next'
 import RatingModal from '../components/RatingModal.vue'
 import TrackDetailModal from '../components/TrackDetailModal.vue'
 
@@ -36,6 +36,8 @@ const loadingReleases = ref(false)
 
 let debounceTimer = null
 
+const route = useRoute()
+
 async function loadAlbums() {
   loading.value = true
   const res = await fetch('/api/albums')
@@ -44,6 +46,17 @@ async function loadAlbums() {
     albums.value.forEach(a => addedIds.value.add(a.spotify_id))
   }
   loading.value = false
+
+  // Deep link from the club: /?album=<id> expands and opens the rating modal
+  const targetId = Number(route.query.album)
+  if (targetId) {
+    const album = albums.value.find(a => a.id === targetId)
+    if (album) {
+      expandedAlbumId.value = album.id
+      openAlbumRating(album)
+    }
+    router.replace({ query: {} })
+  }
 }
 
 function toggleAlbum(albumId) {
@@ -299,6 +312,9 @@ onMounted(loadAlbums)
             <h3 class="font-heading font-semibold truncate text-sm sm:text-base">{{ album.name }}</h3>
             <p class="text-xs sm:text-sm text-text-subdued truncate">{{ album.artist }}</p>
             <p class="text-xs text-text-subdued">{{ album.tracks?.length || 0 }} tracks</p>
+            <p v-if="album.blind" class="text-[11px] text-accent-primary flex items-center gap-1 mt-0.5">
+              <EyeOff class="w-3 h-3" /> Blind club round
+            </p>
           </div>
 
           <!-- Album score -->

@@ -167,6 +167,58 @@ class SpotifyClient:
 
             return tracks
 
+    async def search_artists(self, query: str, limit: int = 10) -> list[dict]:
+        """Search artists (for the release-watch follow UI)."""
+        token = await self._get_token()
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.spotify.com/v1/search",
+                params={"q": query, "type": "artist", "limit": limit},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            artists = []
+            for item in data.get("artists", {}).get("items", []):
+                images = item.get("images", [])
+                artists.append({
+                    "spotify_artist_id": item["id"],
+                    "name": item["name"],
+                    "image": images[-1]["url"] if images else None,
+                    "genres": item.get("genres", [])[:3],
+                })
+            return artists
+
+    async def get_artist_albums(self, artist_id: str, limit: int = 10) -> list[dict]:
+        """An artist's most recent albums/singles, newest first."""
+        token = await self._get_token()
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.spotify.com/v1/artists/{artist_id}/albums",
+                params={"include_groups": "album,single", "limit": limit, "market": "NL"},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            releases = []
+            for item in data.get("items", []):
+                images = item.get("images", [])
+                releases.append({
+                    "spotify_id": item["id"],
+                    "name": item["name"],
+                    "artist": ", ".join(a["name"] for a in item.get("artists", [])),
+                    "image": images[0]["url"] if images else None,
+                    "release_date": item.get("release_date"),
+                    "album_type": item.get("album_type"),
+                    "total_tracks": item.get("total_tracks", 0),
+                })
+            releases.sort(key=lambda r: r["release_date"] or "", reverse=True)
+            return releases
+
     async def get_new_releases(self, limit: int = 20) -> list[dict]:
         """Fetch new album releases from Spotify"""
         token = await self._get_token()

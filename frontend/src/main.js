@@ -12,9 +12,19 @@ import YearReview from './views/YearReview.vue'
 import Session from './views/Session.vue'
 import Rooms from './views/Rooms.vue'
 import AuthVerify from './views/AuthVerify.vue'
+import Feed from './views/Feed.vue'
+import Club from './views/Club.vue'
+import Lists from './views/Lists.vue'
+import ListDetail from './views/ListDetail.vue'
+import ListenLater from './views/ListenLater.vue'
 
 const routes = [
   { path: '/', component: Albums },
+  { path: '/feed', component: Feed },
+  { path: '/club', component: Club },
+  { path: '/lists', component: Lists },
+  { path: '/lists/:id', component: ListDetail },
+  { path: '/listen-later', component: ListenLater },
   { path: '/results', component: Results },
   { path: '/stats', component: Stats },
   { path: '/compare', component: Comparison },

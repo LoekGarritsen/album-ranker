@@ -16,6 +16,7 @@ from models import ListeningSession, SessionCreate, SessionJoin, SessionMediaSet
 from state import active_sessions
 from auth_deps import get_current_user, get_optional_user
 from security import hash_password, verify_password, hash_token
+from notify import notify_all
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -204,6 +205,16 @@ def create_session(data: SessionCreate, user: dict = Depends(get_current_user)):
         "playback_position": 0,
         "playback_started_at": None
     }
+
+    # Public rooms get announced in everyone's notification bell
+    if data.is_public:
+        notify_all("session_started", {
+            "code": code,
+            "name": data.name,
+            "mode": data.mode,
+            "by_name": user["name"],
+            "album_name": album["name"] if album else None,
+        }, exclude_user_id=x_user_id)
 
     return {"code": code, "name": data.name, "mode": data.mode, "album": dict(album) if album else None}
 

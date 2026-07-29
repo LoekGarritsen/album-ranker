@@ -1,33 +1,64 @@
 """
-Analytics routes (results, stats, hot takes, comparison, year review, tier list).
+Analytics routes (results, stats, hot takes, comparison, year review,
+tier list, activity feed, rating history).
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Optional
 import json
 
 from database import get_connection
+from auth_deps import get_current_user
+from blind import blind_album_ids
 
 router = APIRouter(prefix="/api", tags=["analytics"])
 
 
 @router.get("/results")
-def get_results():
+def get_results(user: dict = Depends(get_current_user)):
     """Get all albums with rankings sorted by average score."""
     with get_connection() as conn:
         albums = conn.execute("SELECT * FROM albums").fetchall()
 
+        blind_ids = blind_album_ids(conn)
+        my_rated = set()
+        if blind_ids:
+            rows = conn.execute(
+                "SELECT album_id FROM album_rankings WHERE user_id = ? AND score IS NOT NULL",
+                (user["id"],),
+            ).fetchall()
+            my_rated = {r["album_id"] for r in rows}
+
         results = []
         for album in albums:
-            # Album rankings
+            is_blind = album["id"] in blind_ids and album["id"] not in my_rated
+
+            # Album rankings (with like tallies for the comment feed)
             album_rankings = conn.execute("""
-                SELECT ar.score, ar.comment, u.name as user_name
+                SELECT ar.id as ranking_id, ar.user_id, ar.score, ar.comment, u.name as user_name,
+                       (SELECT COUNT(*) FROM ranking_likes rl
+                        WHERE rl.kind = 'album' AND rl.ranking_id = ar.id) as likes,
+                       (SELECT COUNT(*) FROM ranking_likes rl
+                        WHERE rl.kind = 'album' AND rl.ranking_id = ar.id AND rl.user_id = ?) as liked_by_me
                 FROM album_rankings ar
                 JOIN users u ON ar.user_id = u.id
                 WHERE ar.album_id = ?
-            """, (album["id"],)).fetchall()
+            """, (user["id"], album["id"])).fetchall()
+
+            if is_blind:
+                # Hide others' album scores/comments while blind rating runs
+                album_rankings = [
+                    r if r["user_id"] == user["id"]
+                    else {**dict(r), "score": None, "comment": None}
+                    for r in album_rankings
+                ]
+            else:
+                album_rankings = [dict(r) for r in album_rankings]
 
             album_scores = [r["score"] for r in album_rankings if r["score"]]
-            album_avg = sum(album_scores) / len(album_scores) if album_scores else None
+            album_avg = (
+                None if is_blind
+                else (sum(album_scores) / len(album_scores) if album_scores else None)
+            )
 
             # Track rankings
             tracks = conn.execute("""
@@ -45,11 +76,15 @@ def get_results():
             all_track_scores = []
             for t in tracks:
                 rankings = conn.execute("""
-                    SELECT tr.score, tr.comment, u.name as user_name
+                    SELECT tr.id as ranking_id, tr.user_id, tr.score, tr.comment, u.name as user_name,
+                           (SELECT COUNT(*) FROM ranking_likes rl
+                            WHERE rl.kind = 'track' AND rl.ranking_id = tr.id) as likes,
+                           (SELECT COUNT(*) FROM ranking_likes rl
+                            WHERE rl.kind = 'track' AND rl.ranking_id = tr.id AND rl.user_id = ?) as liked_by_me
                     FROM track_rankings tr
                     JOIN users u ON tr.user_id = u.id
                     WHERE tr.track_id = ?
-                """, (t["id"],)).fetchall()
+                """, (user["id"], t["id"])).fetchall()
 
                 # Collect individual ratings (not per-track averages) so this
                 # matches the album-level average shown by /api/albums.
@@ -68,10 +103,11 @@ def get_results():
 
             results.append({
                 "album": dict(album),
-                "album_rankings": [dict(r) for r in album_rankings],
+                "album_rankings": album_rankings,
                 "average_album_score": round(album_avg, 1) if album_avg else None,
                 "tracks": track_results,
-                "average_track_score": round(track_avg, 1) if track_avg else None
+                "average_track_score": round(track_avg, 1) if track_avg else None,
+                "blind": is_blind
             })
 
         results.sort(key=lambda x: x["average_album_score"] or 0, reverse=True)
@@ -254,6 +290,24 @@ def get_comparison(user1_id: int = Query(...), user2_id: int = Query(...)):
         album_comparison.sort(key=lambda x: x["difference"] or 0, reverse=True)
         track_comparison.sort(key=lambda x: x["difference"] or 0, reverse=True)
 
+        # Compatibility: 100% = identical scores on everything shared,
+        # 0% = maximum possible disagreement (9 points apart on the 1-10 scale)
+        shared_diffs = [
+            c["difference"] for c in album_comparison + track_comparison
+            if c["difference"] is not None
+        ]
+        agreements = sum(1 for d in shared_diffs if d <= 0.5)
+        compatibility = None
+        if shared_diffs:
+            mean_diff = sum(shared_diffs) / len(shared_diffs)
+            compatibility = {
+                "score": round(100 * (1 - mean_diff / 9)),
+                "mean_diff": round(mean_diff, 2),
+                "shared_albums": sum(1 for c in album_comparison if c["difference"] is not None),
+                "shared_tracks": sum(1 for c in track_comparison if c["difference"] is not None),
+                "agreements": agreements,
+            }
+
         # User names
         user1 = conn.execute("SELECT name FROM users WHERE id = ?", (user1_id,)).fetchone()
         user2 = conn.execute("SELECT name FROM users WHERE id = ?", (user2_id,)).fetchone()
@@ -262,7 +316,8 @@ def get_comparison(user1_id: int = Query(...), user2_id: int = Query(...)):
             "user1": {"id": user1_id, "name": user1["name"] if user1 else "Unknown"},
             "user2": {"id": user2_id, "name": user2["name"] if user2 else "Unknown"},
             "albums": album_comparison,
-            "tracks": track_comparison
+            "tracks": track_comparison,
+            "compatibility": compatibility
         }
 
 
@@ -377,3 +432,136 @@ def get_tier_list(user_id: Optional[int] = Query(None)):
                 tiers[tier].sort(key=lambda x: x["score"] or 0, reverse=True)
 
         return {"tiers": tiers}
+
+
+@router.get("/feed")
+def get_feed(limit: int = Query(30, ge=1, le=100), user: dict = Depends(get_current_user)):
+    """Group activity feed: album ratings, track-rating bursts, albums added,
+    lists created and club round changes, newest first."""
+    with get_connection() as conn:
+        blind_ids = blind_album_ids(conn)
+        events = []
+
+        album_ratings = conn.execute("""
+            SELECT ar.id as ranking_id, ar.album_id, ar.score, ar.comment, ar.ranked_at,
+                   u.id as user_id, u.name as user_name,
+                   a.name as album_name, a.artist, a.cover_url,
+                   (SELECT COUNT(*) FROM ranking_likes rl
+                    WHERE rl.kind = 'album' AND rl.ranking_id = ar.id) as likes,
+                   (SELECT COUNT(*) FROM ranking_likes rl
+                    WHERE rl.kind = 'album' AND rl.ranking_id = ar.id AND rl.user_id = ?) as liked_by_me
+            FROM album_rankings ar
+            JOIN users u ON u.id = ar.user_id
+            JOIN albums a ON a.id = ar.album_id
+            WHERE ar.score IS NOT NULL
+            ORDER BY ar.ranked_at DESC LIMIT ?
+        """, (user["id"], limit)).fetchall()
+        for r in album_ratings:
+            if r["album_id"] in blind_ids and r["user_id"] != user["id"]:
+                continue  # blind round: don't leak scores into the feed
+            events.append({"kind": "album_rating", "at": r["ranked_at"], **dict(r)})
+
+        # Track-rating bursts: one entry per user+album+day, not one per track
+        track_bursts = conn.execute("""
+            SELECT u.id as user_id, u.name as user_name, a.id as album_id,
+                   a.name as album_name, a.artist, a.cover_url,
+                   date(tr.ranked_at) as day, COUNT(*) as track_count,
+                   ROUND(AVG(tr.score), 1) as avg_score, MAX(tr.ranked_at) as at
+            FROM track_rankings tr
+            JOIN users u ON u.id = tr.user_id
+            JOIN tracks t ON t.id = tr.track_id
+            JOIN albums a ON a.id = t.album_id
+            WHERE tr.score IS NOT NULL
+            GROUP BY tr.user_id, a.id, day
+            ORDER BY at DESC LIMIT ?
+        """, (limit,)).fetchall()
+        for r in track_bursts:
+            events.append({"kind": "track_burst", **dict(r)})
+
+        added = conn.execute("""
+            SELECT id as album_id, name as album_name, artist, cover_url, added_at as at
+            FROM albums ORDER BY added_at DESC LIMIT ?
+        """, (limit,)).fetchall()
+        for r in added:
+            events.append({"kind": "album_added", **dict(r)})
+
+        new_lists = conn.execute("""
+            SELECT l.id as list_id, l.title, l.created_at as at, u.name as user_name
+            FROM lists l JOIN users u ON u.id = l.user_id
+            ORDER BY l.created_at DESC LIMIT ?
+        """, (limit,)).fetchall()
+        for r in new_lists:
+            events.append({"kind": "list_created", **dict(r)})
+
+        club = conn.execute("""
+            SELECT cr.id as round_id, cr.title, cr.status, cr.updated_at as at,
+                   a.name as album_name, a.artist, a.cover_url
+            FROM club_rounds cr
+            LEFT JOIN albums a ON a.id = cr.album_id
+            ORDER BY cr.updated_at DESC LIMIT ?
+        """, (limit,)).fetchall()
+        for r in club:
+            events.append({"kind": "club_round", **dict(r)})
+
+    events.sort(key=lambda e: str(e["at"] or ""), reverse=True)
+    return {"feed": events[:limit]}
+
+
+@router.get("/rating-history/growers")
+def get_growers(user: dict = Depends(get_current_user)):
+    """Re-rated items: biggest score climbs (growers) and drops (fell off)."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT h.kind, h.item_id, h.user_id, COUNT(*) as changes,
+                   (SELECT score FROM ranking_history f
+                    WHERE f.kind = h.kind AND f.item_id = h.item_id AND f.user_id = h.user_id
+                    ORDER BY f.id ASC LIMIT 1) as first_score,
+                   (SELECT score FROM ranking_history l
+                    WHERE l.kind = h.kind AND l.item_id = h.item_id AND l.user_id = h.user_id
+                    ORDER BY l.id DESC LIMIT 1) as last_score,
+                   MAX(h.created_at) as last_change
+            FROM ranking_history h
+            GROUP BY h.kind, h.item_id, h.user_id
+            HAVING COUNT(*) >= 2
+        """).fetchall()
+
+        blind_ids = blind_album_ids(conn)
+        items = []
+        for r in rows:
+            if r["kind"] == "album":
+                if r["item_id"] in blind_ids and r["user_id"] != user["id"]:
+                    continue
+                info = conn.execute(
+                    "SELECT name, artist, cover_url FROM albums WHERE id = ?",
+                    (r["item_id"],),
+                ).fetchone()
+            else:
+                info = conn.execute("""
+                    SELECT t.name, t.artist, a.cover_url FROM tracks t
+                    JOIN albums a ON a.id = t.album_id WHERE t.id = ?
+                """, (r["item_id"],)).fetchone()
+            if not info:
+                continue
+            uname = conn.execute(
+                "SELECT name FROM users WHERE id = ?", (r["user_id"],)
+            ).fetchone()
+            delta = round(r["last_score"] - r["first_score"], 1)
+            if delta == 0:
+                continue
+            items.append({
+                "kind": r["kind"],
+                "item_id": r["item_id"],
+                "name": info["name"],
+                "artist": info["artist"],
+                "cover_url": info["cover_url"],
+                "user_name": uname["name"] if uname else "?",
+                "first_score": r["first_score"],
+                "last_score": r["last_score"],
+                "delta": delta,
+                "changes": r["changes"],
+                "last_change": r["last_change"],
+            })
+
+    growers = sorted([i for i in items if i["delta"] > 0], key=lambda i: -i["delta"])[:10]
+    fell_off = sorted([i for i in items if i["delta"] < 0], key=lambda i: i["delta"])[:10]
+    return {"growers": growers, "fell_off": fell_off}

@@ -3,10 +3,12 @@ import { ref, onMounted, provide, computed, watch } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   Music2, ChevronDown, LogOut, Radio, Mail, Home,
-  TrendingUp, Users, Layers, Calendar, BarChart3
+  TrendingUp, Users, Layers, Calendar, BarChart3,
+  Activity, Trophy, ListMusic, Bookmark
 } from 'lucide-vue-next'
 import MiniPlayer from './components/MiniPlayer.vue'
 import NowPlayingSidebar from './components/NowPlayingSidebar.vue'
+import NotificationBell from './components/NotificationBell.vue'
 import { useSession } from './composables/useSession'
 import { useAuth } from './composables/useAuth'
 import { usePanel } from './composables/usePanel'
@@ -32,7 +34,9 @@ const isAdmin = computed(() => !!currentUser.value?.is_admin)
 
 const mainNav = [
   { to: '/', label: 'Home', icon: Home },
+  { to: '/feed', label: 'Feed', icon: Activity },
   { to: '/rooms', label: 'Rooms', icon: Radio },
+  { to: '/club', label: 'Club', icon: Trophy },
 ]
 
 const libraryNav = [
@@ -41,6 +45,8 @@ const libraryNav = [
   { to: '/tiers', label: 'Tier List', icon: Layers },
   { to: '/year-review', label: 'Year Review', icon: Calendar },
   { to: '/results', label: 'Results', icon: BarChart3 },
+  { to: '/lists', label: 'Lists', icon: ListMusic },
+  { to: '/listen-later', label: 'Listen Later', icon: Bookmark },
 ]
 
 const userInitial = computed(() => (currentUser.value?.name || '?').charAt(0).toUpperCase())
@@ -170,8 +176,9 @@ onMounted(async () => {
         <!-- Top bar -->
         <header
           v-if="currentUser"
-          class="sticky top-0 z-40 flex items-center justify-end px-4 sm:px-6 py-3 bg-bg-primary/80 backdrop-blur-md"
+          class="sticky top-0 z-40 flex items-center justify-end gap-2 px-4 sm:px-6 py-3 bg-bg-primary/80 backdrop-blur-md"
         >
+          <NotificationBell />
           <div class="relative">
             <button
               @click="showUserMenu = !showUserMenu"

@@ -7,19 +7,32 @@ import json
 from database import get_connection
 from models import AlbumAdd, Album, AlbumWithTracks, UserRanking, TrackWithRankings
 from spotify import spotify_client
-from auth_deps import require_admin
+from auth_deps import require_admin, get_current_user
+from notify import notify_all
+from blind import blind_album_ids, is_blind_for_user
 
 router = APIRouter(prefix="/api/albums", tags=["albums"])
 
 
 @router.get("", response_model=list[AlbumWithTracks])
-def list_albums():
+def list_albums(user: dict = Depends(get_current_user)):
     """List all albums with tracks and rankings."""
     with get_connection() as conn:
         albums = conn.execute("SELECT * FROM albums ORDER BY added_at DESC").fetchall()
 
         users = conn.execute("SELECT id, name FROM users").fetchall()
         user_map = {u["id"]: u["name"] for u in users}
+
+        # Albums under blind club rating: hide others' album-level scores
+        # until the caller has rated (see blind.py).
+        blind_ids = blind_album_ids(conn)
+        my_rated = set()
+        if blind_ids:
+            rows = conn.execute(
+                "SELECT album_id FROM album_rankings WHERE user_id = ? AND score IS NOT NULL",
+                (user["id"],),
+            ).fetchall()
+            my_rated = {r["album_id"] for r in rows}
 
         # Get album rankings
         album_rankings_rows = conn.execute("""
@@ -134,6 +147,15 @@ def list_albums():
             album_avg = sum(album_scores) / len(album_scores) if album_scores else None
             track_avg = sum(all_track_scores) / len(all_track_scores) if all_track_scores else None
 
+            is_blind = a["id"] in blind_ids and a["id"] not in my_rated
+            if is_blind:
+                album_user_rankings = [
+                    r if r.user_id == user["id"]
+                    else UserRanking(user_id=r.user_id, user_name=r.user_name)
+                    for r in album_user_rankings
+                ]
+                album_avg = None
+
             # Parse genres from JSON
             genres = None
             if album_dict.get("genres"):
@@ -148,14 +170,15 @@ def list_albums():
                 tracks=tracks_with_rankings,
                 album_rankings=album_user_rankings,
                 average_album_score=round(album_avg, 1) if album_avg else None,
-                average_track_score=round(track_avg, 1) if track_avg else None
+                average_track_score=round(track_avg, 1) if track_avg else None,
+                blind=is_blind
             ))
 
         return result
 
 
 @router.get("/{album_id}", response_model=AlbumWithTracks)
-def get_album(album_id: int):
+def get_album(album_id: int, user: dict = Depends(get_current_user)):
     """Get a single album with tracks and rankings (same shape as list entries)."""
     with get_connection() as conn:
         album_row = conn.execute("SELECT * FROM albums WHERE id = ?", (album_id,)).fetchone()
@@ -242,6 +265,15 @@ def get_album(album_id: int):
         album_avg = sum(album_scores) / len(album_scores) if album_scores else None
         track_avg = sum(all_track_scores) / len(all_track_scores) if all_track_scores else None
 
+        is_blind = is_blind_for_user(conn, album_id, user["id"])
+        if is_blind:
+            album_user_rankings = [
+                r if r.user_id == user["id"]
+                else UserRanking(user_id=r.user_id, user_name=r.user_name)
+                for r in album_user_rankings
+            ]
+            album_avg = None
+
         album_dict = dict(album_row)
         genres = None
         if album_dict.get("genres"):
@@ -256,15 +288,14 @@ def get_album(album_id: int):
             tracks=tracks_with_rankings,
             album_rankings=album_user_rankings,
             average_album_score=round(album_avg, 1) if album_avg else None,
-            average_track_score=round(track_avg, 1) if track_avg else None
+            average_track_score=round(track_avg, 1) if track_avg else None,
+            blind=is_blind
         )
 
 
-@router.post("", response_model=Album)
-async def add_album(album: AlbumAdd, admin: dict = Depends(require_admin)):
-    """Add a new album from Spotify (admin only)."""
-
-    # Fetch genres from Spotify
+async def import_album_from_spotify(album: AlbumAdd) -> dict:
+    """Insert an album + its tracks from Spotify. Returns the existing row if
+    the album is already in the library (idempotent for club winners)."""
     genres = []
     try:
         details = await spotify_client.get_album_details(album.spotify_id)
@@ -278,7 +309,7 @@ async def add_album(album: AlbumAdd, admin: dict = Depends(require_admin)):
         ).fetchone()
 
         if existing:
-            raise HTTPException(400, "Album already added")
+            return dict(existing)
 
         cursor = conn.execute(
             """INSERT INTO albums (spotify_id, name, artist, cover_url, release_date, genres)
@@ -305,6 +336,20 @@ async def add_album(album: AlbumAdd, admin: dict = Depends(require_admin)):
                  track["disc_number"], track["track_number"], track["duration_ms"])
             )
 
+    return album_row
+
+
+@router.post("", response_model=Album)
+async def add_album(album: AlbumAdd, admin: dict = Depends(require_admin)):
+    """Add a new album from Spotify (admin only)."""
+    with get_connection() as conn:
+        if conn.execute("SELECT 1 FROM albums WHERE spotify_id = ?", (album.spotify_id,)).fetchone():
+            raise HTTPException(400, "Album already added")
+    album_row = await import_album_from_spotify(album)
+    notify_all("album_added", {
+        "album_id": album_row["id"], "name": album_row["name"],
+        "artist": album_row["artist"], "cover_url": album_row["cover_url"],
+    }, exclude_user_id=admin["id"])
     return album_row
 
 

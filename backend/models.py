@@ -83,6 +83,7 @@ class AlbumWithTracks(BaseModel):
     album_rankings: list[UserRanking] = []  # Album-level ratings
     average_album_score: Optional[float] = None  # Average of album ratings
     average_track_score: Optional[float] = None  # Average of all track ratings
+    blind: bool = False  # club blind round: others' album scores hidden
 
 # Stats models
 class UserStats(BaseModel):

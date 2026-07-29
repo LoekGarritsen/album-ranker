@@ -18,7 +18,11 @@ from database import init_db
 from ratelimit import limiter
 from auth_deps import get_current_user
 from fastapi import Depends
-from routers import auth, users, spotify_routes, albums, rankings, analytics, sessions, gifs, lyrics, favorites
+from routers import (
+    auth, users, spotify_routes, albums, rankings, analytics, sessions, gifs,
+    lyrics, favorites, club, listen_later, lists, likes, notifications,
+    follows, proxy,
+)
 
 
 @asynccontextmanager
@@ -64,6 +68,13 @@ app.include_router(gifs.router, dependencies=_auth)
 # limited per-IP in the router instead of auth-gated.
 app.include_router(lyrics.router)
 app.include_router(favorites.router, dependencies=_auth)
+app.include_router(club.router, dependencies=_auth)
+app.include_router(listen_later.router, dependencies=_auth)
+app.include_router(lists.router, dependencies=_auth)
+app.include_router(likes.router, dependencies=_auth)
+app.include_router(notifications.router, dependencies=_auth)
+app.include_router(follows.router, dependencies=_auth)
+app.include_router(proxy.router, dependencies=_auth)
 
 
 if __name__ == "__main__":

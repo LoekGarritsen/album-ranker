@@ -1,12 +1,13 @@
 <script setup>
 import { ref, onMounted, inject, watch, computed } from 'vue'
-import { Calendar, Star, Music, Disc3, TrendingUp, TrendingDown } from 'lucide-vue-next'
+import { Calendar, Star, Music, Disc3, TrendingUp, TrendingDown, Download } from 'lucide-vue-next'
 
 const currentUser = inject('currentUser')
 
 const selectedYear = ref(new Date().getFullYear())
 const review = ref(null)
 const loading = ref(true)
+const rendering = ref(false)
 
 const years = computed(() => {
   const current = new Date().getFullYear()
@@ -47,6 +48,137 @@ function getActivityHeight(count) {
   return 'h-1/5'
 }
 
+// Cover images go through the backend proxy (authed fetch -> blob) so the
+// canvas stays untainted and toBlob() works.
+async function loadCover(url) {
+  if (!url) return null
+  try {
+    const res = await fetch(`/api/image-proxy?url=${encodeURIComponent(url)}`)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    const img = new Image()
+    img.src = URL.createObjectURL(blob)
+    await img.decode()
+    return img
+  } catch {
+    return null
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + w, y, x + w, y + h, r)
+  ctx.arcTo(x + w, y + h, x, y + h, r)
+  ctx.arcTo(x, y + h, x, y, r)
+  ctx.arcTo(x, y, x + w, y, r)
+  ctx.closePath()
+}
+
+async function downloadCard() {
+  if (!review.value || rendering.value) return
+  rendering.value = true
+  try {
+    const W = 1080, H = 1350
+    const canvas = document.createElement('canvas')
+    canvas.width = W
+    canvas.height = H
+    const ctx = canvas.getContext('2d')
+
+    const bg = ctx.createLinearGradient(0, 0, W, H)
+    bg.addColorStop(0, '#0f172a')
+    bg.addColorStop(0.5, '#1e1b4b')
+    bg.addColorStop(1, '#0a0a0a')
+    ctx.fillStyle = bg
+    ctx.fillRect(0, 0, W, H)
+
+    ctx.fillStyle = '#1db954'
+    ctx.font = 'bold 40px system-ui, sans-serif'
+    ctx.fillText('ALBUM RANKER · YEAR IN REVIEW', 70, 110)
+
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 150px system-ui, sans-serif'
+    ctx.fillText(String(selectedYear.value), 70, 260)
+
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'
+    ctx.font = '48px system-ui, sans-serif'
+    ctx.fillText(currentUser.value?.name || '', 70, 330)
+
+    // Stats row
+    const stats = [
+      [String(review.value.albums_rated || 0), 'albums rated'],
+      [String(review.value.tracks_rated || 0), 'tracks rated'],
+      [String(review.value.average_album_score ?? '-'), 'avg album'],
+    ]
+    stats.forEach(([num, label], i) => {
+      const x = 70 + i * 330
+      ctx.fillStyle = 'rgba(255,255,255,0.06)'
+      roundRect(ctx, x, 380, 300, 160, 20)
+      ctx.fill()
+      ctx.fillStyle = '#1db954'
+      ctx.font = 'bold 64px system-ui, sans-serif'
+      ctx.fillText(num, x + 30, 465)
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.font = '30px system-ui, sans-serif'
+      ctx.fillText(label, x + 30, 512)
+    })
+
+    // Top 5 albums with covers
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 44px system-ui, sans-serif'
+    ctx.fillText('Top albums', 70, 640)
+
+    const top = (review.value.top_albums || []).slice(0, 5)
+    const covers = await Promise.all(top.map(a => loadCover(a.cover_url)))
+    top.forEach((album, i) => {
+      const y = 680 + i * 120
+      ctx.fillStyle = 'rgba(255,255,255,0.05)'
+      roundRect(ctx, 70, y, W - 140, 104, 16)
+      ctx.fill()
+
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'
+      ctx.font = 'bold 44px system-ui, sans-serif'
+      ctx.fillText(String(i + 1), 95, y + 66)
+
+      if (covers[i]) {
+        ctx.save()
+        roundRect(ctx, 160, y + 12, 80, 80, 10)
+        ctx.clip()
+        ctx.drawImage(covers[i], 160, y + 12, 80, 80)
+        ctx.restore()
+      }
+
+      ctx.fillStyle = '#ffffff'
+      ctx.font = 'bold 36px system-ui, sans-serif'
+      const name = album.name.length > 32 ? album.name.slice(0, 31) + '…' : album.name
+      ctx.fillText(name, 270, y + 48)
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'
+      ctx.font = '28px system-ui, sans-serif'
+      const artist = album.artist.length > 40 ? album.artist.slice(0, 39) + '…' : album.artist
+      ctx.fillText(artist, 270, y + 84)
+
+      ctx.fillStyle = '#1db954'
+      ctx.font = 'bold 48px system-ui, sans-serif'
+      const score = album.score?.toFixed(1) || '-'
+      ctx.fillText(score, W - 190, y + 68)
+    })
+
+    ctx.fillStyle = 'rgba(255,255,255,0.35)'
+    ctx.font = '30px system-ui, sans-serif'
+    ctx.fillText('albums.garritsen.dev', 70, H - 60)
+
+    canvas.toBlob((blob) => {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `year-review-${selectedYear.value}-${(currentUser.value?.name || 'me').toLowerCase()}.png`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    }, 'image/png')
+  } finally {
+    rendering.value = false
+  }
+}
+
 onMounted(loadReview)
 watch([selectedYear, currentUser], loadReview)
 </script>
@@ -59,14 +191,25 @@ watch([selectedYear, currentUser], loadReview)
         Year in Review
       </h1>
 
-      <select
-        v-model="selectedYear"
-        class="px-4 py-2 bg-surface-highlight border border-transparent rounded-lg text-white focus:outline-none focus:border-accent-primary"
-      >
-        <option v-for="year in years" :key="year" :value="year">
-          {{ year }}
-        </option>
-      </select>
+      <div class="flex items-center gap-2">
+        <select
+          v-model="selectedYear"
+          class="px-4 py-2 bg-surface-highlight border border-transparent rounded-lg text-white focus:outline-none focus:border-accent-primary"
+        >
+          <option v-for="year in years" :key="year" :value="year">
+            {{ year }}
+          </option>
+        </select>
+        <button
+          v-if="review && (review.albums_rated || review.tracks_rated)"
+          @click="downloadCard"
+          :disabled="rendering"
+          class="btn-primary flex items-center gap-2"
+        >
+          <Download class="w-4 h-4" />
+          {{ rendering ? 'Rendering…' : 'Share card' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="!currentUser" class="text-center py-12 text-text-subdued">

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, inject, watch } from 'vue'
-import { ArrowLeftRight, Disc3, Music } from 'lucide-vue-next'
+import { ArrowLeftRight, Disc3, Music, HeartHandshake } from 'lucide-vue-next'
 
 const users = inject('users')
 const currentUser = inject('currentUser')
@@ -42,6 +42,21 @@ function getDiffColor(diff) {
   return 'text-green-400'
 }
 
+function getCompatColor(score) {
+  if (score >= 85) return 'text-green-400'
+  if (score >= 70) return 'text-accent-primary'
+  if (score >= 50) return 'text-yellow-400'
+  return 'text-red-400'
+}
+
+function compatLabel(score) {
+  if (score >= 90) return 'Musical soulmates'
+  if (score >= 80) return 'Very compatible'
+  if (score >= 65) return 'Mostly aligned'
+  if (score >= 50) return 'Agree to disagree'
+  return 'Sworn enemies'
+}
+
 onMounted(() => {
   if (users.value?.length >= 2) {
     user1Id.value = users.value[0]?.id
@@ -80,6 +95,28 @@ watch([user1Id, user2Id], loadComparison)
             {{ user.name }}
           </option>
         </select>
+      </div>
+    </div>
+
+    <!-- Compatibility score -->
+    <div v-if="comparison?.compatibility" class="glass p-4 sm:p-5 mb-6 flex items-center gap-4 sm:gap-6">
+      <div class="shrink-0 text-center">
+        <div class="text-4xl sm:text-5xl font-heading font-bold" :class="getCompatColor(comparison.compatibility.score)">
+          {{ comparison.compatibility.score }}%
+        </div>
+        <div class="text-xs text-text-subdued mt-1">compatibility</div>
+      </div>
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 font-semibold">
+          <HeartHandshake class="w-5 h-5 text-accent-primary shrink-0" />
+          {{ compatLabel(comparison.compatibility.score) }}
+        </div>
+        <p class="text-sm text-text-subdued mt-1">
+          {{ comparison.compatibility.shared_albums }} shared albums,
+          {{ comparison.compatibility.shared_tracks }} shared tracks —
+          {{ comparison.compatibility.agreements }} near-identical scores,
+          {{ comparison.compatibility.mean_diff }} points apart on average.
+        </p>
       </div>
     </div>
 

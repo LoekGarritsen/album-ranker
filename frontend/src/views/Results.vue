@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Trophy, MessageCircle, ChevronDown, Disc3, Music } from 'lucide-vue-next'
+import { ArrowLeft, Trophy, MessageCircle, ChevronDown, Disc3, Music, Heart, EyeOff } from 'lucide-vue-next'
 
 const router = useRouter()
 
@@ -36,6 +36,19 @@ function getScoreColor(score) {
   if (score >= 6) return 'text-yellow-400'
   if (score >= 4) return 'text-orange-400'
   return 'text-red-400'
+}
+
+async function toggleLike(ranking, kind) {
+  const res = await fetch('/api/likes/toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, ranking_id: ranking.ranking_id }),
+  })
+  if (res.ok) {
+    const { liked, count } = await res.json()
+    ranking.liked_by_me = liked ? 1 : 0
+    ranking.likes = count
+  }
 }
 
 onMounted(loadResults)
@@ -97,6 +110,9 @@ onMounted(loadResults)
           <div class="flex-1 min-w-0">
             <h3 class="font-heading font-semibold truncate text-sm sm:text-base">{{ item.album.name }}</h3>
             <p class="text-xs sm:text-sm text-text-subdued truncate">{{ item.album.artist }}</p>
+            <p v-if="item.blind" class="text-[11px] text-accent-primary flex items-center gap-1 mt-0.5">
+              <EyeOff class="w-3 h-3" /> Blind round — rate it to see the scores
+            </p>
           </div>
 
           <!-- Scores -->
@@ -160,12 +176,21 @@ onMounted(loadResults)
                   class="w-10 text-center font-heading font-bold"
                   :class="getScoreColor(ranking.score)"
                 >
-                  {{ ranking.score }}
+                  {{ ranking.score ?? (item.blind ? '🙈' : '') }}
                 </div>
                 <div v-if="ranking.comment" class="flex-1 text-sm text-text-subdued">
                   <MessageCircle class="w-3 h-3 inline mr-1 opacity-50" />
                   {{ ranking.comment }}
                 </div>
+                <button
+                  v-if="ranking.comment"
+                  @click.stop="toggleLike(ranking, 'album')"
+                  class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-colors flex-shrink-0"
+                  :class="ranking.liked_by_me ? 'text-accent-primary' : 'text-text-subdued hover:text-white'"
+                >
+                  <Heart class="w-3.5 h-3.5" :class="{ 'fill-current': ranking.liked_by_me }" />
+                  <span v-if="ranking.likes">{{ ranking.likes }}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -208,6 +233,15 @@ onMounted(loadResults)
                     <span v-if="ranking.comment" class="text-text-subdued flex-1">
                       {{ ranking.comment }}
                     </span>
+                    <button
+                      v-if="ranking.comment"
+                      @click.stop="toggleLike(ranking, 'track')"
+                      class="flex items-center gap-1 px-1.5 rounded-full text-xs transition-colors flex-shrink-0"
+                      :class="ranking.liked_by_me ? 'text-accent-primary' : 'text-text-subdued hover:text-white'"
+                    >
+                      <Heart class="w-3 h-3" :class="{ 'fill-current': ranking.liked_by_me }" />
+                      <span v-if="ranking.likes">{{ ranking.likes }}</span>
+                    </button>
                   </div>
                 </div>
               </div>

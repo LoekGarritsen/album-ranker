@@ -7,19 +7,27 @@ const users = inject('users')
 
 const stats = ref(null)
 const hotTakes = ref([])
+const growers = ref([])
+const fellOff = ref([])
 const loading = ref(true)
 
 async function loadStats() {
   loading.value = true
   try {
-    const [statsRes, hotTakesRes] = await Promise.all([
+    const [statsRes, hotTakesRes, growersRes] = await Promise.all([
       fetch('/api/stats'),
-      fetch('/api/hot-takes')
+      fetch('/api/hot-takes'),
+      fetch('/api/rating-history/growers')
     ])
     if (statsRes.ok) stats.value = await statsRes.json()
     if (hotTakesRes.ok) {
       const data = await hotTakesRes.json()
       hotTakes.value = data.hot_takes || []
+    }
+    if (growersRes.ok) {
+      const data = await growersRes.json()
+      growers.value = data.growers || []
+      fellOff.value = data.fell_off || []
     }
   } catch (e) {
     console.error('Failed to load stats:', e)
@@ -167,6 +175,54 @@ onMounted(loadStats)
                 <span :class="take.user_score > take.average_score ? 'text-green-400' : 'text-red-400'">
                   ({{ take.user_score > take.average_score ? '+' : '' }}{{ (take.user_score - take.average_score).toFixed(1) }})
                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Growers & fell off (re-rates) -->
+      <div v-if="growers.length || fellOff.length" class="grid md:grid-cols-2 gap-6">
+        <div v-if="growers.length">
+          <h2 class="text-lg sm:text-xl font-heading font-semibold mb-3 flex items-center gap-2">
+            <TrendingUp class="w-5 h-5 text-green-400" />
+            Growers
+          </h2>
+          <p class="text-text-subdued text-xs sm:text-sm mb-3">Re-rates that climbed the most</p>
+          <div class="space-y-2">
+            <div v-for="(item, i) in growers" :key="i" class="glass p-3 flex items-center gap-3">
+              <img :src="item.cover_url || '/placeholder.svg'" class="w-10 h-10 rounded-md object-cover bg-surface-highlight flex-shrink-0" />
+              <div class="flex-1 min-w-0">
+                <p class="truncate text-sm font-medium">{{ item.name }}</p>
+                <p class="text-xs text-text-subdued truncate">{{ item.user_name }} · {{ item.kind }}</p>
+              </div>
+              <div class="text-sm flex-shrink-0">
+                <span class="text-text-subdued">{{ item.first_score }}</span>
+                <span class="text-text-subdued mx-1">→</span>
+                <span class="font-heading font-bold" :class="getScoreColor(item.last_score)">{{ item.last_score }}</span>
+                <span class="text-green-400 text-xs ml-1">+{{ item.delta }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="fellOff.length">
+          <h2 class="text-lg sm:text-xl font-heading font-semibold mb-3 flex items-center gap-2">
+            <TrendingDown class="w-5 h-5 text-red-400" />
+            Fell Off
+          </h2>
+          <p class="text-text-subdued text-xs sm:text-sm mb-3">Re-rates that dropped the most</p>
+          <div class="space-y-2">
+            <div v-for="(item, i) in fellOff" :key="i" class="glass p-3 flex items-center gap-3">
+              <img :src="item.cover_url || '/placeholder.svg'" class="w-10 h-10 rounded-md object-cover bg-surface-highlight flex-shrink-0" />
+              <div class="flex-1 min-w-0">
+                <p class="truncate text-sm font-medium">{{ item.name }}</p>
+                <p class="text-xs text-text-subdued truncate">{{ item.user_name }} · {{ item.kind }}</p>
+              </div>
+              <div class="text-sm flex-shrink-0">
+                <span class="text-text-subdued">{{ item.first_score }}</span>
+                <span class="text-text-subdued mx-1">→</span>
+                <span class="font-heading font-bold" :class="getScoreColor(item.last_score)">{{ item.last_score }}</span>
+                <span class="text-red-400 text-xs ml-1">{{ item.delta }}</span>
               </div>
             </div>
           </div>

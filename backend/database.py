@@ -207,6 +207,126 @@ def init_db():
                 found INTEGER DEFAULT 0,
                 fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            -- Club rounds: nominate -> vote -> blind rate -> reveal
+            CREATE TABLE IF NOT EXISTS club_rounds (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'nominating'
+                    CHECK(status IN ('nominating', 'voting', 'rating', 'revealed')),
+                album_id INTEGER REFERENCES albums(id) ON DELETE SET NULL,
+                created_by INTEGER REFERENCES users(id),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- One nomination per user per round (replaced while nominating)
+            CREATE TABLE IF NOT EXISTS club_nominations (
+                id INTEGER PRIMARY KEY,
+                round_id INTEGER NOT NULL REFERENCES club_rounds(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                spotify_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                cover_url TEXT,
+                release_date TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(round_id, user_id)
+            );
+
+            -- One vote per user per round (re-vote replaces)
+            CREATE TABLE IF NOT EXISTS club_votes (
+                round_id INTEGER NOT NULL REFERENCES club_rounds(id) ON DELETE CASCADE,
+                nomination_id INTEGER NOT NULL REFERENCES club_nominations(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (round_id, user_id)
+            );
+
+            -- Listen-later backlog: Spotify albums bookmarked per user
+            CREATE TABLE IF NOT EXISTS listen_later (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                spotify_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                image TEXT,
+                release_date TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, spotify_id)
+            );
+
+            -- Custom user-made album lists
+            CREATE TABLE IF NOT EXISTS lists (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS list_items (
+                id INTEGER PRIMARY KEY,
+                list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+                album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL DEFAULT 0,
+                note TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(list_id, album_id)
+            );
+
+            -- Likes on rating comments (kind: 'album' or 'track')
+            CREATE TABLE IF NOT EXISTS ranking_likes (
+                id INTEGER PRIMARY KEY,
+                kind TEXT NOT NULL CHECK(kind IN ('album', 'track')),
+                ranking_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(kind, ranking_id, user_id)
+            );
+
+            -- In-app notifications (payload is a JSON blob per type)
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                type TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}',
+                read INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_notifications_user
+                ON notifications(user_id, id);
+
+            -- Followed Spotify artists for the new-release watch
+            CREATE TABLE IF NOT EXISTS artist_follows (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                spotify_artist_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                image TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, spotify_artist_id)
+            );
+
+            -- Cache of an artist's recent releases (Spotify), refreshed every 6h
+            CREATE TABLE IF NOT EXISTS release_cache (
+                spotify_artist_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Append-only score history: one row per rating change (re-rates)
+            CREATE TABLE IF NOT EXISTS ranking_history (
+                id INTEGER PRIMARY KEY,
+                kind TEXT NOT NULL CHECK(kind IN ('album', 'track')),
+                item_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                score REAL NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_ranking_history_item
+                ON ranking_history(kind, item_id, user_id, id);
         """)
 
         # Migrations for existing databases (must run before admin seeding so
